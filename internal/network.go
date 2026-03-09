@@ -13,6 +13,16 @@ import (
 	"github.com/skip2/go-qrcode"
 )
 
+// пир это просто ещё 1 нода в зоне видимости,
+// мы храним активные ноды, чтобы обмениваться данными
+type Peer struct {
+	UID  string
+	IP   string
+	Port int
+
+	LastSeen time.Time
+}
+
 // !!: mdns требует настройки avahi на линукс (ну либо можно просто выключить avahi-daemon.service))
 // на windows 10+ и macOS запустится нативно потому что они поддерживают эту технологию из коробки
 
@@ -81,25 +91,21 @@ func PrintQr(url string) error {
 	return nil
 }
 
-// пир это просто ещё 1 нода в зоне видимости,
-// мы храним активные ноды, чтобы обмениваться данными
-type Peer struct {
-	UID  string
-	IP   string
-	Port int
-
-	LastSeen time.Time
-}
-
+// активные соединения (потокобезопасно)
 var ActiveConns sync.Map
 
+// найти активные соединения
 func discoverConns(ctx context.Context) {
+	// создаем такой же зероконф резолвер
 	reslv, err := zeroconf.NewResolver(nil)
 	if err != nil {
 		panic(err)
 	}
 
+	// канал для результатов асинхронного поиска
 	entries := make(chan *zeroconf.ServiceEntry)
+
+	// начинаем поиск
 	go func(res <-chan *zeroconf.ServiceEntry) {
 		for entry := range res {
 			var uid string
@@ -126,5 +132,4 @@ func discoverConns(ctx context.Context) {
 	if err != nil {
 		log.Println("resolver: failed to browse:", err)
 	}
-
 }
