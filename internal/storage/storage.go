@@ -7,6 +7,8 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+// TODO: сюда передаем ИНТЕРФЕЙС
+
 // память это по сути прост обертка над бд
 type Storage struct {
 	db *bbolt.DB

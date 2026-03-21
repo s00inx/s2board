@@ -1,7 +1,7 @@
-package internal
+package network
 
 // метаданные записи на доске, которые хранятся и передаются
-type NoteMeta struct {
+type NoteManifest struct {
 	Hash      string `json:"hash"`
 	Content   string `json:"text"`
 	Timestamp int64  `json:"ts"`

@@ -5,17 +5,21 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/s00inx/stdesk/internal/network"
 )
 
-func InitNetwork() {
-	curnode, _ := NodeConnect("node.key")
+// TODO: инкапсулировать узел и сделать его методами все функции !!
 
-	liface, ipstr := GetLocalIface()
+func InitNetwork() {
+	curnode, _ := network.NodeConnect("node.key")
+
+	liface, ipstr := network.GetLocalIface()
 	if liface == nil {
 		fmt.Println("error configuring your web interface/")
 	}
 
-	go discoverConns(context.Background()) // !! ДО запуска
+	go curnode.Discover(context.Background())
 
 	port := "8080" // запускаем пока на порту 8080
 	url := fmt.Sprintf("http://%s:%s", ipstr, port)
@@ -23,9 +27,9 @@ func InitNetwork() {
 	fmt.Println("setup...")
 	fmt.Println("mdns addr: http://stshare.local:8080")
 	fmt.Printf("reserve addr: %s\n", url)
-	PrintQr(url)
+	network.PrintQr(url)
 
-	mdnsrv, err := InitMdns(liface, curnode.UID)
+	mdnsrv, err := network.InitMdns(liface, curnode.UID)
 	if err != nil {
 		fmt.Println("mDns conf error: ", err)
 	}

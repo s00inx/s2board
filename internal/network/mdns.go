@@ -1,42 +1,35 @@
 // инициализация мднс и локального адреса
-package internal
+package network
 
 import (
-	"context"
 	"fmt"
-	"log"
 	"net"
-	"sync"
-	"time"
+	"os"
 
 	"github.com/grandcat/zeroconf"
 	"github.com/skip2/go-qrcode"
 )
 
-// пир это просто ещё 1 нода в зоне видимости,
-// мы храним активные ноды, чтобы обмениваться данными
-type Peer struct {
-	UID  string
-	IP   string
-	Port int
-
-	LastSeen time.Time
-}
-
-// !!: mdns требует настройки avahi на линукс (ну либо можно просто выключить avahi-daemon.service))
+// !!: mdns требует настройки avahi на линукс (ну либо можно просто sudo systemctl disable avahi-daemon.service для systemd))
 // на windows 10+ и macOS запустится нативно потому что они поддерживают эту технологию из коробки
 
 // инициализируем zeroconf-сервис http://stdesk.local:8080, и передаем туда наш найденный сетевой интерфейс
 // и uid для идентификации ноды
 func InitMdns(ip *net.Interface, uid string) (*zeroconf.Server, error) {
+	if ip == nil {
+		return nil, fmt.Errorf("can't find any valid net interface, please connect to hotspot")
+	}
+
+	hostname, _ := os.Hostname()
+
+	// важно: эта функция под капотом использует dns-sd, то есть по сути устройство выходит в сеть под хостнеймом, но предоставляет услугу stdesk
+	// (https://habr.com/ru/articles/839602/)
 	serv, err := zeroconf.Register(
-		"stdesk",
-		"_http._tcp",
+		hostname,
+		"_stdesk._tcp",
 		"local.",
 		8080,
 		[]string{
-			"txtv=1",
-			"mode=active",
 			"uid=" + uid,
 		},
 		[]net.Interface{*ip},
@@ -57,12 +50,12 @@ func GetLocalIface() (*net.Interface, string) {
 		return nil, ""
 	}
 
-	// пеербираем интерфейсы (обычно loopback и wlp0s)
+	// пеербираем интерфейсы (обычно loopback и wlan)
 	for _, ie := range ifaces {
 		addrs, _ := ie.Addrs() // адреса интерфейса
 
 		for _, a := range addrs {
-			// проверка поднят ли вообще интефейс, не будем ли мы пытаться сделать все через выключенный wl например))
+			// проверка поднят ли вообще интефейс, не будем ли мы пытаться сделать все через выключенный wlan например))
 			if ie.Flags&net.FlagUp == 0 || ie.Flags&net.FlagLoopback != 0 {
 				continue
 			}
@@ -89,47 +82,4 @@ func PrintQr(url string) error {
 
 	fmt.Println(q.ToSmallString(false))
 	return nil
-}
-
-// активные соединения (потокобезопасно)
-var ActiveConns sync.Map
-
-// найти активные соединения
-func discoverConns(ctx context.Context) {
-	// создаем такой же зероконф резолвер
-	reslv, err := zeroconf.NewResolver(nil)
-	if err != nil {
-		panic(err)
-	}
-
-	// канал для результатов асинхронного поиска
-	entries := make(chan *zeroconf.ServiceEntry)
-
-	// начинаем поиск
-	go func(res <-chan *zeroconf.ServiceEntry) {
-		for entry := range res {
-			var uid string
-			for _, f := range entry.Text {
-				if len(f) > 4 && f[:4] == "uid=" {
-					uid = f[4:]
-				}
-			}
-
-			if uid != "" {
-				ActiveConns.Store(uid,
-					Peer{
-						UID:      uid,
-						IP:       entry.AddrIPv4[0].String(),
-						Port:     entry.Port,
-						LastSeen: time.Now(),
-					})
-				fmt.Printf("\n[NEW PEER] Found node: %s at %s:%d\n", uid[:8], entry.AddrIPv4[0], entry.Port)
-			}
-		}
-	}(entries)
-
-	err = reslv.Browse(ctx, "_stdesk._tcp", "local.", entries)
-	if err != nil {
-		log.Println("resolver: failed to browse:", err)
-	}
 }
