@@ -1,3 +1,4 @@
+// центральный узел сети
 package network
 
 import (
@@ -8,17 +9,20 @@ import (
 	"os"
 )
 
-// экземпляр узла (ноды)
+// структура для именно этого устройства в сети
 type Node struct {
-	Name     string // короткое имя для удобства (потом)
+	// публичная инфа
+	Name string // короткое имя для удобства (потом)
+
+	// ключи и crypto
 	PublicK  ed25519.PublicKey
 	PrivateK ed25519.PrivateKey
 	UID      string // строковое представление публичного ключа
 
+	// параметры конкретного экземпляра
 	iface *net.Interface
 	ip    [4]byte
 	port  int
-
 	peers PeerMap
 }
 

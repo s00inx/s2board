@@ -21,9 +21,6 @@ func InitMdns(ip *net.Interface, uid string) (*zeroconf.Server, error) {
 	}
 
 	hostname, _ := os.Hostname()
-
-	// важно: эта функция под капотом использует dns-sd, то есть по сути устройство выходит в сеть под хостнеймом, но предоставляет услугу stdesk
-	// (https://habr.com/ru/articles/839602/)
 	serv, err := zeroconf.Register(
 		hostname,
 		"_stdesk._tcp",
@@ -55,12 +52,9 @@ func GetLocalIface() (*net.Interface, string) {
 		addrs, _ := ie.Addrs() // адреса интерфейса
 
 		for _, a := range addrs {
-			// проверка поднят ли вообще интефейс, не будем ли мы пытаться сделать все через выключенный wlan например))
 			if ie.Flags&net.FlagUp == 0 || ie.Flags&net.FlagLoopback != 0 {
 				continue
 			}
-
-			// проверяем что это не мусор и не лупбек (lo)
 			if ipmask, ok := a.(*net.IPNet); ok && !ipmask.IP.IsLoopback() {
 				if ipmask.IP.To4() != nil {
 					return &ie, ipmask.IP.String()

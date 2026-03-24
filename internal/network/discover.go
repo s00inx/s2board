@@ -8,16 +8,17 @@ import (
 	"time"
 
 	"github.com/grandcat/zeroconf"
+	"github.com/s00inx/stdesk/internal/models"
 )
 
 // потокобезопасная мапа для активных соединений, но без ненужных интерфейсов
 type PeerMap struct {
-	d  map[string]Peer
+	d  map[string]models.Peer
 	mu sync.Mutex
 }
 
 // добавить значение в мапу потокобезопасно
-func (pm *PeerMap) Add(p Peer) {
+func (pm *PeerMap) Add(p models.Peer) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -42,7 +43,7 @@ func (n *Node) Discover(ctx context.Context) {
 			}
 
 			if uid != "" && uid != n.UID {
-				n.peers.Add(Peer{
+				n.peers.Add(models.Peer{
 					UID:      uid,
 					IP:       entry.AddrIPv4[0].String(),
 					Port:     entry.Port,
@@ -61,11 +62,11 @@ func (n *Node) Discover(ctx context.Context) {
 }
 
 // найти активные соединения на момент вызова функции
-func (n *Node) GetConns() []Peer {
+func (n *Node) GetConns() []models.Peer {
 	n.peers.mu.Lock()
 	defer n.peers.mu.Unlock()
 
-	plist := make([]Peer, 0, len(n.peers.d))
+	plist := make([]models.Peer, 0, len(n.peers.d))
 	for _, v := range n.peers.d {
 		plist = append(plist, v)
 	}
