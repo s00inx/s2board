@@ -1,2 +1,4 @@
 *.key
 *.json
+*.txt
+/data

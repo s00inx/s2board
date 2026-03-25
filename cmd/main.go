@@ -5,7 +5,6 @@ import (
 )
 
 /*
-
 	/sync
 	/api/feed/
 	/api/stats/

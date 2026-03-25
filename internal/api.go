@@ -2,17 +2,35 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/s00inx/stdesk/internal/network"
+	"github.com/s00inx/stdesk/internal/storage"
 )
 
 // TODO: инкапсулировать узел и сделать его методами все функции !!
 
+func dlhandler(w http.ResponseWriter, r *http.Request) {
+	hval := r.PathValue("hash")
+
+	path := filepath.Join("data/blobs/" + hval[:2] + "/" + hval)
+	w.Header().Set("Content-Disposition", "attachment; filename=\"download\"")
+
+	http.ServeFile(w, r, path)
+}
+
 func InitNetwork() {
-	curnode, _ := network.NodeConnect("node.key")
+	st := storage.Storage{
+		BaseDir: "data/",
+		KeyDir:  "data/node.key",
+	}
+	curnode, _ := network.NodeConnect(st.KeyDir)
+	curnode.Storage = st
 
 	liface, ipstr := network.GetLocalIface()
 	if liface == nil {
@@ -35,10 +53,26 @@ func InitNetwork() {
 	}
 	defer mdnsrv.Shutdown()
 
+	mux := http.NewServeMux()
+
 	// для теста
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Node ID: " + curnode.UID))
-	})
+		os.Stdout.Write([]byte("new req\n"))
 
-	log.Fatal(http.ListenAndServe(":"+port, h))
+		finaljson := curnode.ProcessFile("test.txt", "test", "blAnk")
+
+		//temp
+		type Hash struct {
+			Hash string `json:"filehash"`
+		}
+		fhash := Hash{}
+		json.Unmarshal(finaljson, &fhash)
+
+		w.Write([]byte("Node ID: " + curnode.UID + "\n\n\n" +
+			string(finaljson) + "\n" + url + "/api/dl/" + fhash.Hash))
+	})
+	mux.HandleFunc("GET /", h)
+	mux.HandleFunc("GET /api/dl/{hash}", dlhandler)
+
+	log.Fatal(http.ListenAndServe(":"+port, mux))
 }

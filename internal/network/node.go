@@ -5,9 +5,17 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net"
 	"os"
+	"path/filepath"
+
+	"github.com/s00inx/stdesk/internal/models"
 )
+
+/*
+	POST /api/create (json) --> some logic --> ProcessFile
+*/
 
 // структура для именно этого устройства в сети
 type Node struct {
@@ -19,11 +27,42 @@ type Node struct {
 	PrivateK ed25519.PrivateKey
 	UID      string // строковое представление публичного ключа
 
+	Storage nodeStorage
+
 	// параметры конкретного экземпляра
 	iface *net.Interface
 	ip    [4]byte
 	port  int
 	peers PeerMap
+}
+
+type nodeStorage interface {
+	RegisterFile(src, title, desc string) (string, int64, error)
+	SaveFile(man models.NoteManifest) error
+}
+
+func (n *Node) ProcessFile(src, title, desc string) []byte {
+	fhash, fsize, err := n.Storage.RegisterFile(src, title, desc)
+	if err != nil {
+		return []byte{}
+	}
+	man := models.NewNote(
+		title,
+		filepath.Base(src),
+		desc,
+		fhash,
+		fsize,
+		models.FileType,
+	)
+
+	man.AuthorUID = n.UID
+	man.Sign(n.PrivateK)
+	man.Hash = hex.EncodeToString(man.CalculateID())
+
+	n.Storage.SaveFile(*man)
+
+	manjson, _ := json.MarshalIndent(man, " ", " ")
+	return manjson
 }
 
 // когда нода создается приватный ключ сохраняется в указанную директорию
