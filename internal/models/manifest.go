@@ -42,7 +42,7 @@ func NewNote(title, content, desc, fileHash string, size int64, nType string) *N
 }
 
 // айди записи это 32 байта хеша всех значимых полей.
-func (m *NoteManifest) CalculateID() []byte {
+func (m *NoteManifest) CalcId() []byte {
 	h := sha256.New()
 	h.Write([]byte(m.AuthorUID))
 
@@ -67,7 +67,7 @@ func (m *NoteManifest) CalculateID() []byte {
 
 // подписать манифест перед тем как отправлять в сеть
 func (m *NoteManifest) Sign(privKey ed25519.PrivateKey) error {
-	hbytes := m.CalculateID()
+	hbytes := m.CalcId()
 
 	m.Hash = hex.EncodeToString(hbytes)
 
@@ -82,7 +82,7 @@ func (m *NoteManifest) Verify() bool {
 	pubk, _ := hex.DecodeString(m.AuthorUID)
 	sig, _ := hex.DecodeString(m.Signature)
 
-	hbytes := m.CalculateID()
+	hbytes := m.CalcId()
 
 	return ed25519.Verify(pubk, hbytes, sig)
 }

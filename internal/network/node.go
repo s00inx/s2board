@@ -22,7 +22,7 @@ type Node struct {
 	// публичная инфа
 	Name string // короткое имя для удобства (потом)
 
-	// ключи и crypto
+	// ключи
 	PublicK  ed25519.PublicKey
 	PrivateK ed25519.PrivateKey
 	UID      string // строковое представление публичного ключа
@@ -37,15 +37,17 @@ type Node struct {
 }
 
 type nodeStorage interface {
-	RegisterFile(src, title, desc string) (string, int64, error)
+	RegisterFile(src string) (string, int64, error)
 	SaveFile(man models.NoteManifest) error
 }
 
+// заполнить форму на фронтенде -> добавить файл в бд -> сохранить -> вернуть json
 func (n *Node) ProcessFile(src, title, desc string) []byte {
-	fhash, fsize, err := n.Storage.RegisterFile(src, title, desc)
+	fhash, fsize, err := n.Storage.RegisterFile(src)
 	if err != nil {
 		return []byte{}
 	}
+
 	man := models.NewNote(
 		title,
 		filepath.Base(src),
@@ -57,7 +59,7 @@ func (n *Node) ProcessFile(src, title, desc string) []byte {
 
 	man.AuthorUID = n.UID
 	man.Sign(n.PrivateK)
-	man.Hash = hex.EncodeToString(man.CalculateID())
+	man.Hash = hex.EncodeToString(man.CalcId())
 
 	n.Storage.SaveFile(*man)
 
@@ -98,5 +100,6 @@ func NodeConnect(privpath string) (*Node, error) {
 		PublicK:  pub,
 		PrivateK: priv,
 		UID:      hex.EncodeToString(pub),
+		peers:    *NewPeerMap(),
 	}, nil
 }

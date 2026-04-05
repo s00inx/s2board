@@ -17,6 +17,13 @@ type PeerMap struct {
 	mu sync.Mutex
 }
 
+// конструктор для мапы
+func NewPeerMap() *PeerMap {
+	return &PeerMap{
+		d: make(map[string]models.Peer),
+	}
+}
+
 // добавить значение в мапу потокобезопасно
 func (pm *PeerMap) Add(p models.Peer) {
 	pm.mu.Lock()
@@ -35,6 +42,10 @@ func (n *Node) Discover(ctx context.Context) {
 	en := make(chan *zeroconf.ServiceEntry)
 	go func(res <-chan *zeroconf.ServiceEntry) {
 		for entry := range res {
+			if len(entry.AddrIPv4) == 0 {
+				continue
+			}
+
 			var uid string
 			for _, f := range entry.Text {
 				if len(f) > 4 && f[:4] == "uid=" {
@@ -55,7 +66,7 @@ func (n *Node) Discover(ctx context.Context) {
 		}
 	}(en)
 
-	err = rs.Browse(ctx, "_stdesk._tcp", "local.", en)
+	err = rs.Browse(ctx, "_s2board._tcp", "local.", en)
 	if err != nil {
 		log.Println("resolver: failed to browse:", err)
 	}

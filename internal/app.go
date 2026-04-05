@@ -25,16 +25,18 @@ func dlhandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func InitNetwork() {
-	st := storage.Storage{
-		BaseDir: "data/",
-		KeyDir:  "data/node.key",
+	st, err := storage.NewStorage("data/")
+	if err != nil {
+		fmt.Print(err)
+		return
 	}
-	curnode, _ := network.NodeConnect(st.KeyDir)
+
+	curnode, _ := network.NodeConnect(filepath.Join(st.Dir, "node.key"))
 	curnode.Storage = st
 
 	liface, ipstr := network.GetLocalIface()
 	if liface == nil {
-		fmt.Println("error configuring your web interface/")
+		log.Println("error configuring your web interface/")
 	}
 
 	go curnode.Discover(context.Background())
@@ -61,7 +63,7 @@ func InitNetwork() {
 
 		finaljson := curnode.ProcessFile("test.txt", "test", "blAnk")
 
-		//temp
+		// tmp
 		type Hash struct {
 			Hash string `json:"filehash"`
 		}
@@ -71,6 +73,7 @@ func InitNetwork() {
 		w.Write([]byte("Node ID: " + curnode.UID + "\n\n\n" +
 			string(finaljson) + "\n" + url + "/api/dl/" + fhash.Hash))
 	})
+
 	mux.HandleFunc("GET /", h)
 	mux.HandleFunc("GET /api/dl/{hash}", dlhandler)
 
