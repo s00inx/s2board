@@ -2,80 +2,109 @@ package internal
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"github.com/s00inx/stdesk/internal/network"
 	"github.com/s00inx/stdesk/internal/storage"
 )
 
-// TODO: инкапсулировать узел и сделать его методами все функции !!
-
-func dlhandler(w http.ResponseWriter, r *http.Request) {
-	hval := r.PathValue("hash")
-
-	path := filepath.Join("data/blobs/" + hval[:2] + "/" + hval)
-	w.Header().Set("Content-Disposition", "attachment; filename=\"download\"")
-
-	http.ServeFile(w, r, path)
+// конфиг это абстракция для удобной настройки приложения
+type Config struct {
+	DataDir string // где лежат бд и блобы
+	Port    string // порт веб-сервера
+	Name    string // имя ноды (по желанию)
 }
 
-func InitNetwork() {
-	st, err := storage.NewStorage("data/")
-	if err != nil {
-		fmt.Print(err)
-		return
-	}
+// главная абстаркция над всем сервисом, инкапсулирует логику ноды и хранилища
+type App struct {
+	curnode *network.Node
+	st      *storage.Storage
+	cfg     *Config
+}
 
-	curnode, _ := network.NodeConnect(filepath.Join(st.Dir, "node.key"))
+// создает экземпляр приложения и подготавливает зависимости
+func NewApp(cfg *Config) *App {
+	return &App{
+		cfg: cfg,
+	}
+}
+
+// точка входа, что запускает все сетевые и системные процессы
+func (a *App) Run() {
+	st, err := storage.Init(a.cfg.DataDir)
+	if err != nil {
+		log.Fatal("storage init error: ", err)
+	}
+	a.st = st
+
+	curnode, err := network.NodeConnect(filepath.Join(st.Dir, "node.key"))
+	if err != nil {
+		log.Fatal("[FATAL] node connect error: ", err)
+	}
 	curnode.Storage = st
+	a.curnode = curnode
 
 	liface, ipstr := network.GetLocalIface()
 	if liface == nil {
-		log.Println("error configuring your web interface/")
+		log.Println("[WARN] could not find valid net interface, using localhost")
+	}
+	url := fmt.Sprintf("http://%s:%s", ipstr, a.cfg.Port)
+
+	go a.curnode.Discover(context.Background()) // поиск соседей
+	// a.startBackgroundSync()
+
+	mdnsrv, err := network.InitMdns(liface, a.curnode.UID)
+	if err != nil {
+		log.Println("[WARN] mDNS registration failed: ", err)
+	} else {
+		defer mdnsrv.Shutdown()
 	}
 
-	go curnode.Discover(context.Background())
-
-	port := "8080" // запускаем пока на порту 8080
-	url := fmt.Sprintf("http://%s:%s", ipstr, port)
-
-	fmt.Println("setup...")
-	fmt.Println("mdns addr: http://stshare.local:8080")
-	fmt.Printf("reserve addr: %s\n", url)
+	fmt.Printf("\nservice is STARTED...s\n")
+	fmt.Printf("node UID: %s\n", a.curnode.UID[:16])
+	fmt.Printf("local UI: %s\n", url)
 	network.PrintQr(url)
 
-	mdnsrv, err := network.InitMdns(liface, curnode.UID)
-	if err != nil {
-		fmt.Println("mDns conf error: ", err)
-	}
-	defer mdnsrv.Shutdown()
+	mux := a.setupRoutes()
+	log.Fatal(http.ListenAndServe(":"+a.cfg.Port, mux))
+}
 
+// отдельный метод который регает все апи-ручки
+func (a *App) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// для теста
-	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		os.Stdout.Write([]byte("new req\n"))
-
-		finaljson := curnode.ProcessFile("test.txt", "test", "blAnk")
-
-		// tmp
-		type Hash struct {
-			Hash string `json:"filehash"`
-		}
-		fhash := Hash{}
-		json.Unmarshal(finaljson, &fhash)
-
-		w.Write([]byte("Node ID: " + curnode.UID + "\n\n\n" +
-			string(finaljson) + "\n" + url + "/api/dl/" + fhash.Hash))
+	// homepage
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		finaljson := a.curnode.ProcessFile("test.txt", "Auto-Note", "Synced via P2P")
+		w.Write([]byte("S2BOARD Active\n\n" + string(finaljson)))
 	})
 
-	mux.HandleFunc("GET /", h)
-	mux.HandleFunc("GET /api/dl/{hash}", dlhandler)
+	// download file via hash
+	mux.HandleFunc("GET /api/dl/{hash}", a.dlHandler)
 
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	// receive updates
+	mux.HandleFunc("POST /api/recv", a.receiveHandler)
+
+	// delta-sync for nodes
+	mux.HandleFunc("GET /api/sync", a.curnode.GetHashes)
+	mux.HandleFunc("POST /api/sync/fetch", a.curnode.FetchManifests)
+
+	return mux
 }
+
+// startBackgroundSync запускает бесконечный цикл опроса соседей
+// func (a *App) startBackgroundSync() {
+// 	go func() {
+// 		ticker := time.NewTicker(45 * time.Second)
+// 		for range ticker.C {
+// 			peers := a.curnode.GetConns()
+// 			if len(peers) == 0 {
+// 				continue
+// 			}
+// 			log.Printf("[SYNC] checking %d peers for updates...", len(peers))
+// 		}
+// 	}()
+// }

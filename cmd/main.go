@@ -4,14 +4,11 @@ import (
 	"github.com/s00inx/stdesk/internal"
 )
 
-/*
-	/sync
-	/api/feed/
-	/api/stats/
-	/api/create/
-
-*/
-
 func main() {
-	internal.InitNetwork()
+	cfg := &internal.Config{
+		DataDir: "data/",
+		Port:    "8080",
+	}
+	app := internal.NewApp(cfg)
+	app.Run()
 }

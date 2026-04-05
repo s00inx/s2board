@@ -1,3 +1,5 @@
+// все что касается внутренней бд
+// !!: здесь може быть любая бд, выбран бболт из-за скорости и безопасности данных (но можно использовать и sql, все что угодно)
 package storage
 
 import (
@@ -8,6 +10,7 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+// сохранить файл в бболт
 func (s *Storage) SaveFile(man models.NoteManifest) error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("entries"))
@@ -21,6 +24,7 @@ func (s *Storage) SaveFile(man models.NoteManifest) error {
 	})
 }
 
+// взять манифест из бд по хешу
 func (s *Storage) GetManifest(hash string) (*models.NoteManifest, error) {
 	var m models.NoteManifest
 
@@ -41,6 +45,7 @@ func (s *Storage) GetManifest(hash string) (*models.NoteManifest, error) {
 	return &m, err
 }
 
+// удалить запись из бд по хешу
 func (s *Storage) DeleteManifest(hash string) error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("entries"))
@@ -57,4 +62,26 @@ func (s *Storage) DeleteManifest(hash string) error {
 
 		return b.Delete([]byte(hash))
 	})
+}
+
+// получить все хеши для синхронизации
+func (s *Storage) GetHashes() ([]string, error) {
+	var hashes []string
+
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("entries"))
+		if b == nil {
+			return nil
+		}
+
+		return b.ForEach(func(k, v []byte) error {
+			hashes = append(hashes, string(k))
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return hashes, nil
 }
