@@ -1,5 +1,5 @@
 *.key
 *.json
 *.txt
-/data
+/data*
 *.md
