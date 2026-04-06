@@ -32,13 +32,14 @@ func (pm *PeerMap) Add(p models.Peer) {
 	pm.d[p.UID] = p
 }
 
+// удалить значение из мапы
 func (pm *PeerMap) Remove(uid string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	delete(pm.d, uid)
 }
 
-// удвлить ноды которые давно не были в сети
+// удалить ноды которые давно не были в сети
 func (pm *PeerMap) Cleanup(timeout time.Duration) int {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()

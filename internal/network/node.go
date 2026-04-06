@@ -36,6 +36,7 @@ type Node struct {
 	peers PeerMap
 }
 
+// интерфейс для локального хранилища конкретной ноды
 type nodeStorage interface {
 	// saving files (node.go -> ProcessFile)
 	RegisterFile(src string) (string, int64, error)
@@ -137,16 +138,15 @@ func (n *Node) DlBlob(p models.Peer, fhash string) error {
 
 // запустить цикл очистки старых пиров
 func (n *Node) StartClean(ctx context.Context) {
-	// Раз в минуту проверяем, кто "умер"
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
+	ti := time.NewTicker(1 * time.Minute)
+	defer ti.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
+		case <-ti.C:
 			count := n.peers.Cleanup(5 * time.Minute)
 			if count > 0 {
-				log.Printf("[PEERS] c;eaned up %d peers", count)
+				log.Printf("[PEERS] cleaned up %d peers", count)
 			}
 		case <-ctx.Done():
 			log.Println("[INFO] cleanup worker stopped")

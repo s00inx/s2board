@@ -1,4 +1,5 @@
 // синхронизация конкретной ноды с другими в этой же локальной сети
+// получить ВСЕ хеши -> сравнить -> запросить манифесты -> проверить -> сохранить
 package network
 
 import (
@@ -12,112 +13,85 @@ import (
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// GET /api/sync
-// список всех хешей которые есть у конкретной ноды (нужно для синхронизации данных)
-func (n *Node) GetHashes(w http.ResponseWriter, r *http.Request) {
-	hashes, err := n.Storage.GetHashes()
-	if err != nil {
-		http.Error(w, "Internal error", 500)
-		return
-	}
-	json.NewEncoder(w).Encode(hashes)
+// получить список всех хешей которые есть у конкретной ноды
+func (n *Node) GetHashes() ([]string, error) {
+	return n.Storage.GetHashes()
 }
 
-// POST /api/sync/fetch
 // принимает список хешей и отдает полные манифесты
-// наш узел просит у других те манифесты, которых не хватает
-func (n *Node) FetchManifests(w http.ResponseWriter, r *http.Request) {
-	var re []string
-	if err := json.NewDecoder(r.Body).Decode(&re); err != nil {
-		http.Error(w, "Bad request", 400)
-		return
-	}
-
+func (n *Node) FetchManifests(hashes []string) ([]models.NoteManifest, error) {
 	var res []models.NoteManifest
-	for _, h := range re {
+
+	for _, h := range hashes {
 		man, err := n.Storage.GetManifest(h)
 		if err == nil && man != nil {
 			res = append(res, *man)
 		}
 	}
-	json.NewEncoder(w).Encode(res)
+
+	return res, nil
 }
 
 // полностью синхронизировать 2 ноды между собой в несколько этапов
 func (n *Node) Syncw(p models.Peer) error {
+	// делаю одного клиента с таймаутом
 	c := &http.Client{Timeout: 10 * time.Second}
 
-	// 1: спрашиваем у другой ноды конкретный список ее пиров
-	peresp, err := c.Get(fmt.Sprintf("http://%s:%d/api/peers", p.IP, p.Port))
-	if err == nil {
-		defer peresp.Body.Close()
-		var ne []models.Peer
-		if err := json.NewDecoder(peresp.Body).Decode(&ne); err == nil {
-			for _, peer := range ne {
-				if peer.UID != n.UID {
-					n.peers.Add(peer)
-				}
-			}
-		}
-	}
-
-	// 2:
+	// 1: спрашиваю у ноды список хешей всех записей которые у нее есть
 	resp, err := c.Get(fmt.Sprintf("http://%s:%d/api/sync", p.IP, p.Port))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
-	var rmhashes []string
-	if err := json.NewDecoder(resp.Body).Decode(&rmhashes); err != nil {
+	var excl []string
+	if err := json.NewDecoder(resp.Body).Decode(&excl); err != nil {
 		return err
 	}
-
-	var ms []string
-	for _, h := range rmhashes {
+	var missing []string // собираю список нужных хешей
+	for _, h := range excl {
 		_, err := n.Storage.GetManifest(h)
 		if err != nil {
-			ms = append(ms, h)
+			missing = append(missing, h)
 		}
 	}
-
-	if len(ms) == 0 {
+	// нечего качать, завершаем
+	if len(missing) == 0 {
 		return nil
 	}
-	log.Printf("[SYNC] found %d missing notes from %s, fetching...", len(ms), p.UID[:8])
 
-	body, _ := json.Marshal(ms)
+	log.Printf("[SYNC] found %d missing notes from %s, fetching...", len(missing), p.UID[:8])
+
+	// 2: делаем запрос к ноде, чтобы она выдала нам манифеств только по нужным хешам
+	body, _ := json.Marshal(missing)
 	fresp, err := c.Post(
 		fmt.Sprintf("http://%s:%d/api/sync/fetch", p.IP, p.Port),
 		"application/json",
 		bytes.NewBuffer(body),
 	)
-
 	if err != nil {
 		return err
 	}
 	defer fresp.Body.Close()
-
-	// 3:
 	var newnotes []models.NoteManifest
 	if err := json.NewDecoder(fresp.Body).Decode(&newnotes); err != nil {
 		return err
 	}
 
+	// добавляем манифесты в свое локальное хранилище
 	for _, man := range newnotes {
+		// проверяем ноду
 		if !man.Verify() {
 			log.Printf("[WARNING] fake signature for note %s from peer %s --> ignored.", man.Hash, p.UID[:8])
 			continue
 		}
 
-		n.Storage.SaveFile(man)
-		if man.FileHash != "" && !n.Storage.FileExists(man.FileHash) {
-			log.Printf("[SYNC] downloading blob for note: %s", man.Title)
-			err := n.DlBlob(p, man.FileHash)
-			if err != nil {
-				log.Printf("[ERR] failed to download blob %s: %v", man.FileHash[:8], err)
-			}
-		}
+		// if man.FileHash != "" && !n.Storage.FileExists(man.FileHash) {
+		// 	log.Printf("[SYNC] downloading blob for note: %s", man.Title)
+		// 	err := n.DlBlob(p, man.FileHash)
+		// 	if err != nil {
+		// 		log.Printf("[ERR] failed to download blob %s: %v", man.FileHash[:8], err)
+		// 	}
+		// }
 
 		err = n.Storage.SaveFile(man)
 		if err == nil {

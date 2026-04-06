@@ -83,15 +83,14 @@ func (a *App) setupRoutes() *http.ServeMux {
 	})
 
 	// mux.HandleFunc("GET /api/notes", a.listNotesHandler) // список всех заметок
-	mux.HandleFunc("GET /api/dl/{hash}", a.dlHandler) // скачать файл
-	mux.HandleFunc("POST /api/recv", a.recvHandler)
+	mux.HandleFunc("GET /api/dl/{hash}", a.dlh) // скачать файл
+	mux.HandleFunc("POST /api/recv", a.recvh)
 
-	mux.HandleFunc("GET /api/sync", a.curnode.GetHashes)
-	mux.HandleFunc("POST /api/sync/fetch", a.curnode.FetchManifests)
+	mux.HandleFunc("GET /api/sync", a.synch)
+	mux.HandleFunc("POST /api/sync/fetch", a.fetchh)
 
-	mux.HandleFunc("GET /api/peers", a.curnode.GetPeersHandler)
-
-	mux.HandleFunc("POST /api/test", a.createTestNoteHandler)
+	// mux.HandleFunc("GET /api/peers", a.curnode.GetPeersHandler)
+	mux.HandleFunc("POST /api/test", a.testh)
 
 	return mux
 }

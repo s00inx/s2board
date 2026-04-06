@@ -13,7 +13,7 @@ import (
 // !!: mdns требует настройки avahi на линукс (ну либо можно просто sudo systemctl disable avahi-daemon.service для systemd))
 // на windows 10+ и macOS запустится нативно потому что они поддерживают эту технологию из коробки
 
-// инициализируем zeroconf-сервис http://s2board.local:8080, и передаем туда наш найденный сетевой интерфейс
+// инициализируем zeroconf-сервис и передаем туда наш найденный сетевой интерфейс
 // и uid для идентификации ноды
 func InitMdns(ip *net.Interface, uid string, port int) (*zeroconf.Server, error) {
 	if ip == nil {
@@ -49,7 +49,7 @@ func GetLocalIface() (*net.Interface, string) {
 		return nil, ""
 	}
 
-	// пеербираем интерфейсы (обычно loopback и wlan)
+	// перебираем интерфейсы (обычно loopback и wlan)
 	for _, ie := range ifaces {
 		addrs, _ := ie.Addrs() // адреса интерфейса
 
