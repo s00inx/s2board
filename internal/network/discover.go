@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/grandcat/zeroconf"
-	"github.com/s00inx/stdesk/internal/models"
+	"github.com/s00inx/s2board/internal/models"
 )
 
 // потокобезопасная мапа для активных соединений, но без ненужных интерфейсов
@@ -18,9 +18,9 @@ type PeerMap struct {
 }
 
 // конструктор для мапы
-func NewPeerMap() *PeerMap {
+func NewPM() *PeerMap {
 	return &PeerMap{
-		d: make(map[string]models.Peer),
+		d: make(map[string]models.Peer, 0),
 	}
 }
 
@@ -30,6 +30,27 @@ func (pm *PeerMap) Add(p models.Peer) {
 	defer pm.mu.Unlock()
 
 	pm.d[p.UID] = p
+}
+
+func (pm *PeerMap) Remove(uid string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	delete(pm.d, uid)
+}
+
+// удвлить ноды которые давно не были в сети
+func (pm *PeerMap) Cleanup(timeout time.Duration) int {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	rm := 0
+	for uid, peer := range pm.d {
+		if time.Since(peer.LastSeen) > timeout {
+			pm.Remove(uid)
+			rm++
+		}
+	}
+	return rm
 }
 
 // найти узел в сети
@@ -42,7 +63,12 @@ func (n *Node) Discover(ctx context.Context) {
 	en := make(chan *zeroconf.ServiceEntry)
 	go func(res <-chan *zeroconf.ServiceEntry) {
 		for entry := range res {
-			if len(entry.AddrIPv4) == 0 {
+			var targetip string
+			if len(entry.AddrIPv4) > 0 {
+				targetip = entry.AddrIPv4[0].String()
+			} else if len(entry.AddrIPv6) > 0 {
+				targetip = fmt.Sprintf("[%s]", entry.AddrIPv6[0].String())
+			} else {
 				continue
 			}
 
@@ -56,12 +82,11 @@ func (n *Node) Discover(ctx context.Context) {
 			if uid != "" && uid != n.UID {
 				n.peers.Add(models.Peer{
 					UID:      uid,
-					IP:       entry.AddrIPv4[0].String(),
+					IP:       targetip,
 					Port:     entry.Port,
 					LastSeen: time.Now(),
 				})
-
-				fmt.Printf("\n[NEW PEER] Found node: %s at %s:%d\n", uid[:8], entry.AddrIPv4[0], entry.Port)
+				log.Printf("\n[NEW PEER] Found node: %s at %s:%d\n", uid[:8], targetip, entry.Port)
 			}
 		}
 	}(en)
@@ -69,6 +94,8 @@ func (n *Node) Discover(ctx context.Context) {
 	err = rs.Browse(ctx, "_s2board._tcp", "local.", en)
 	if err != nil {
 		log.Println("resolver: failed to browse:", err)
+
+		close(en)
 	}
 }
 

@@ -1,3 +1,4 @@
+// синхронизация конкретной ноды с другими в этой же локальной сети
 package network
 
 import (
@@ -8,10 +9,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/s00inx/stdesk/internal/models"
+	"github.com/s00inx/s2board/internal/models"
 )
 
-// GET /api/sync - список всех хешей которые есть у конкретной ноды
+// GET /api/sync
+// список всех хешей которые есть у конкретной ноды (нужно для синхронизации данных)
 func (n *Node) GetHashes(w http.ResponseWriter, r *http.Request) {
 	hashes, err := n.Storage.GetHashes()
 	if err != nil {
@@ -21,7 +23,9 @@ func (n *Node) GetHashes(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(hashes)
 }
 
-// POST /api/sync/fetch - принимает список хешей и отдает полные манифесты
+// POST /api/sync/fetch
+// принимает список хешей и отдает полные манифесты
+// наш узел просит у других те манифесты, которых не хватает
 func (n *Node) FetchManifests(w http.ResponseWriter, r *http.Request) {
 	var re []string
 	if err := json.NewDecoder(r.Body).Decode(&re); err != nil {
@@ -39,10 +43,25 @@ func (n *Node) FetchManifests(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 
-// синкануть 2 пира между собой
+// полностью синхронизировать 2 ноды между собой в несколько этапов
 func (n *Node) Syncw(p models.Peer) error {
 	c := &http.Client{Timeout: 10 * time.Second}
 
+	// 1: спрашиваем у другой ноды конкретный список ее пиров
+	peresp, err := c.Get(fmt.Sprintf("http://%s:%d/api/peers", p.IP, p.Port))
+	if err == nil {
+		defer peresp.Body.Close()
+		var ne []models.Peer
+		if err := json.NewDecoder(peresp.Body).Decode(&ne); err == nil {
+			for _, peer := range ne {
+				if peer.UID != n.UID {
+					n.peers.Add(peer)
+				}
+			}
+		}
+	}
+
+	// 2:
 	resp, err := c.Get(fmt.Sprintf("http://%s:%d/api/sync", p.IP, p.Port))
 	if err != nil {
 		return err
@@ -79,6 +98,7 @@ func (n *Node) Syncw(p models.Peer) error {
 	}
 	defer fresp.Body.Close()
 
+	// 3:
 	var newnotes []models.NoteManifest
 	if err := json.NewDecoder(fresp.Body).Decode(&newnotes); err != nil {
 		return err
@@ -91,7 +111,6 @@ func (n *Node) Syncw(p models.Peer) error {
 		}
 
 		n.Storage.SaveFile(man)
-
 		if man.FileHash != "" && !n.Storage.FileExists(man.FileHash) {
 			log.Printf("[SYNC] downloading blob for note: %s", man.Title)
 			err := n.DlBlob(p, man.FileHash)

@@ -1,16 +1,17 @@
 // все что касается внутренней бд
 // !!: здесь може быть любая бд, выбран бболт из-за скорости и безопасности данных (но можно использовать и sql, все что угодно)
+// см. network/node -> nodeStorage
 package storage
 
 import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/s00inx/stdesk/internal/models"
+	"github.com/s00inx/s2board/internal/models"
 	"go.etcd.io/bbolt"
 )
 
-// сохранить файл в бболт
+// сохранить файл в бд
 func (s *Storage) SaveFile(man models.NoteManifest) error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("entries"))

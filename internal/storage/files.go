@@ -33,7 +33,14 @@ func (s *Storage) saveHashed(file *os.File, src string) (string, error) {
 	// ошибка тут если бинарник и файл на разных дисках, все равно придется копировать фвйл на диск с бинарником
 	// если они на одном диске, сработает хардлинк
 	if err != nil {
-		// fallback
+		dstf, err := os.Create(tpath)
+		if err != nil {
+			return "", err
+		}
+		defer dstf.Close()
+
+		_, err = io.Copy(dstf, file)
+		return fhash, err
 	}
 
 	return fhash, nil
@@ -66,13 +73,12 @@ func (s *Storage) DeleteFile(fhash string) error {
 	return os.Remove(target)
 }
 
-// FileExists проверяет наличие файла по его хешу
+// проверить наличие файла по его хешу
 func (s *Storage) FileExists(fhash string) bool {
 	_, err := os.Stat(s.fhash2path(fhash))
 	return err == nil
 }
 
-// SaveBlob принимает Reader (тело ответа от другой ноды) и пишет в файл
 func (s *Storage) SaveBlob(fhash string, r io.Reader) error {
 	tpath := s.fhash2path(fhash)
 	os.MkdirAll(filepath.Dir(tpath), 0755)

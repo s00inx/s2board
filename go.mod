@@ -1,4 +1,4 @@
-module github.com/s00inx/stdesk
+module github.com/s00inx/s2board
 
 go 1.25.0
 

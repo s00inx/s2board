@@ -2,6 +2,7 @@
 package network
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -9,18 +10,13 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/s00inx/stdesk/internal/models"
+	"github.com/s00inx/s2board/internal/models"
 )
-
-/*
-	POST /api/create (json) --> some logic --> ProcessFile
-*/
 
 // структура для именно этого устройства в сети
 type Node struct {
@@ -35,9 +31,8 @@ type Node struct {
 	Storage nodeStorage
 
 	// параметры конкретного экземпляра
-	iface *net.Interface
 	ip    [4]byte
-	port  int
+	Port  int
 	peers PeerMap
 }
 
@@ -50,17 +45,17 @@ type nodeStorage interface {
 	GetHashes() ([]string, error)
 	GetManifest(hash string) (*models.NoteManifest, error)
 
-	// downloading files (node/node.go -> DownloadBlob)
+	// downloading files (node.go -> DownloadBlob)
 	FileExists(fhash string) bool // проверить, есть ли файл на диске
 	SaveBlob(fhash string, r io.Reader) error
 }
 
 // подключение ноды к локальной сети
-func NodeConnect(privpath string) (*Node, error) {
+func NodeConnect(privpath string, port int) (*Node, error) {
 	f, err := os.ReadFile(privpath)
 
 	if err != nil {
-		return mknode(privpath)
+		return mknode(privpath, port)
 	}
 
 	priv := ed25519.PrivateKey(f)
@@ -70,11 +65,35 @@ func NodeConnect(privpath string) (*Node, error) {
 		PublicK:  pub,
 		PrivateK: priv,
 		UID:      hex.EncodeToString(pub),
-		peers:    *NewPeerMap(),
+		Port:     port,
+		peers:    *NewPM(),
 	}, nil
 }
 
-// заполнить форму на фронтенде -> добавить файл в бд -> сохранить -> вернуть json
+// вспомогательная функция для инициализации узла
+func mknode(dst string, port int) (*Node, error) {
+	// генерим ключи
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
+	err = os.WriteFile(dst, priv, 0600)
+	if err != nil {
+		return nil, err
+	}
+	// ^-- сохраняем приватный ключ в указанную директорию
+
+	return &Node{
+		PublicK:  pub,
+		PrivateK: priv,
+		UID:      hex.EncodeToString(pub),
+		Port:     port,
+		peers:    *NewPM(),
+	}, nil
+}
+
+// заполнить форму на фронтенде -> добавить файл в бд -> сохранить -> вернуть json байтами
 func (n *Node) ProcessFile(src, title, desc string) []byte {
 	fhash, fsize, err := n.Storage.RegisterFile(src)
 	if err != nil {
@@ -100,29 +119,7 @@ func (n *Node) ProcessFile(src, title, desc string) []byte {
 	return manjson
 }
 
-// запустить фоновый процесс синхронизации
-func (n *Node) StartSync() {
-	// ставим сюда 30 сек
-	t := time.NewTicker(30 * time.Second)
-
-	go func() {
-		for range t.C {
-			ps := n.GetConns()
-			if len(ps) == 0 {
-				continue
-			}
-
-			for _, p := range ps {
-				err := n.Syncw(p)
-				if err != nil {
-					log.Printf("[SYNC] failed with %s: %v", p.UID[:8], err)
-				}
-			}
-		}
-	}()
-}
-
-// скачать физический файл у пира
+// скачать файл у пира
 func (n *Node) DlBlob(p models.Peer, fhash string) error {
 	c := http.Client{Timeout: 30 * time.Second}
 	resp, err := c.Get(fmt.Sprintf("http://%s:%d/api/dl/%s", p.IP, p.Port, fhash))
@@ -138,23 +135,29 @@ func (n *Node) DlBlob(p models.Peer, fhash string) error {
 	return n.Storage.SaveBlob(fhash, resp.Body)
 }
 
-// вспомогательная функция для того инициализации узла
-func mknode(dst string) (*Node, error) {
-	// генерим ключи
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		panic(err)
-	}
+// запустить цикл очистки старых пиров
+func (n *Node) StartClean(ctx context.Context) {
+	// Раз в минуту проверяем, кто "умер"
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
 
-	err = os.WriteFile(dst, priv, 0600)
-	if err != nil {
-		return nil, err
+	for {
+		select {
+		case <-ticker.C:
+			count := n.peers.Cleanup(5 * time.Minute)
+			if count > 0 {
+				log.Printf("[PEERS] c;eaned up %d peers", count)
+			}
+		case <-ctx.Done():
+			log.Println("[INFO] cleanup worker stopped")
+			return
+		}
 	}
-	// ^-- сохраняем приватный ключ в указанную директорию
+}
 
-	return &Node{
-		PublicK:  pub,
-		PrivateK: priv,
-		UID:      hex.EncodeToString(pub),
-	}, nil
+// GET /api/peers
+func (n *Node) GetPeersHandler(w http.ResponseWriter, r *http.Request) {
+	peers := n.GetConns()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(peers)
 }

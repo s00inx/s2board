@@ -15,17 +15,19 @@ import (
 
 // инициализируем zeroconf-сервис http://s2board.local:8080, и передаем туда наш найденный сетевой интерфейс
 // и uid для идентификации ноды
-func InitMdns(ip *net.Interface, uid string) (*zeroconf.Server, error) {
+func InitMdns(ip *net.Interface, uid string, port int) (*zeroconf.Server, error) {
 	if ip == nil {
 		return nil, fmt.Errorf("can't find any valid net interface, please connect to hotspot")
 	}
 
 	hostname, _ := os.Hostname()
+	iname := fmt.Sprintf("%s_%s", hostname, uid[:8])
+
 	serv, err := zeroconf.Register(
-		hostname,
+		iname,
 		"_s2board._tcp",
 		"local.",
-		8080,
+		port,
 		[]string{
 			"uid=" + uid,
 		},

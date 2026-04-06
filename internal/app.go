@@ -7,14 +7,14 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"github.com/s00inx/stdesk/internal/network"
-	"github.com/s00inx/stdesk/internal/storage"
+	"github.com/s00inx/s2board/internal/network"
+	"github.com/s00inx/s2board/internal/storage"
 )
 
 // конфиг это абстракция для удобной настройки приложения
 type Config struct {
 	DataDir string // где лежат бд и блобы
-	Port    string // порт веб-сервера
+	Port    int    // порт веб-сервера
 	Name    string // имя ноды (по желанию)
 }
 
@@ -40,7 +40,7 @@ func (a *App) Run() {
 	}
 	a.st = st
 
-	curnode, err := network.NodeConnect(filepath.Join(st.Dir, "node.key"))
+	curnode, err := network.NodeConnect(filepath.Join(st.Dir, "node.key"), a.cfg.Port)
 	if err != nil {
 		log.Fatal("[FATAL] node connect error: ", err)
 	}
@@ -51,60 +51,47 @@ func (a *App) Run() {
 	if liface == nil {
 		log.Println("[WARN] could not find valid net interface, using localhost")
 	}
-	url := fmt.Sprintf("http://%s:%s", ipstr, a.cfg.Port)
+	url := fmt.Sprintf("http://%s:%d", ipstr, a.cfg.Port)
 
 	go a.curnode.Discover(context.Background()) // поиск соседей
-	// a.startBackgroundSync()
 
-	mdnsrv, err := network.InitMdns(liface, a.curnode.UID)
+	mdnsrv, err := network.InitMdns(liface, a.curnode.UID, a.cfg.Port)
 	if err != nil {
 		log.Println("[WARN] mDNS registration failed: ", err)
 	} else {
 		defer mdnsrv.Shutdown()
 	}
 
-	fmt.Printf("\nservice is STARTED...s\n")
+	fmt.Printf("\nservice is STARTED...\n")
 	fmt.Printf("node UID: %s\n", a.curnode.UID[:16])
 	fmt.Printf("local UI: %s\n", url)
 	network.PrintQr(url)
 
 	mux := a.setupRoutes()
-	log.Fatal(http.ListenAndServe(":"+a.cfg.Port, mux))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", a.cfg.Port), mux))
 }
 
-// отдельный метод который регает все апи-ручки
 func (a *App) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// homepage
+	// Главная
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		finaljson := a.curnode.ProcessFile("test.txt", "Auto-Note", "Synced via P2P")
-		w.Write([]byte("S2BOARD Active\n\n" + string(finaljson)))
+		log.Printf("[NETWORK] new client conn: %s", r.RemoteAddr)
+
+		notes, _ := a.st.GetHashes()
+		fmt.Fprintf(w, "S2BOARD Active. Notes count: %d", len(notes))
 	})
 
-	// download file via hash
-	mux.HandleFunc("GET /api/dl/{hash}", a.dlHandler)
+	// mux.HandleFunc("GET /api/notes", a.listNotesHandler) // список всех заметок
+	mux.HandleFunc("GET /api/dl/{hash}", a.dlHandler) // скачать файл
+	mux.HandleFunc("POST /api/recv", a.recvHandler)
 
-	// receive updates
-	mux.HandleFunc("POST /api/recv", a.receiveHandler)
-
-	// delta-sync for nodes
 	mux.HandleFunc("GET /api/sync", a.curnode.GetHashes)
 	mux.HandleFunc("POST /api/sync/fetch", a.curnode.FetchManifests)
 
+	mux.HandleFunc("GET /api/peers", a.curnode.GetPeersHandler)
+
+	mux.HandleFunc("POST /api/test", a.createTestNoteHandler)
+
 	return mux
 }
-
-// startBackgroundSync запускает бесконечный цикл опроса соседей
-// func (a *App) startBackgroundSync() {
-// 	go func() {
-// 		ticker := time.NewTicker(45 * time.Second)
-// 		for range ticker.C {
-// 			peers := a.curnode.GetConns()
-// 			if len(peers) == 0 {
-// 				continue
-// 			}
-// 			log.Printf("[SYNC] checking %d peers for updates...", len(peers))
-// 		}
-// 	}()
-// }
