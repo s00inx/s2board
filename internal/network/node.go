@@ -28,62 +28,58 @@ type Node struct {
 	PrivateK ed25519.PrivateKey
 	UID      string // строковое представление публичного ключа
 
-	Storage nodeStorage
-
 	// параметры конкретного экземпляра
-	ip    [4]byte
-	Port  int
-	peers PeerMap
+	Port int
+
+	peers   PeerMap
+	Storage nodeStorage
 }
 
 // интерфейс для локального хранилища конкретной ноды
 type nodeStorage interface {
 	// saving files (node.go -> ProcessFile)
 	RegisterFile(src string) (string, int64, error)
-	SaveFile(man models.NoteManifest) error
+	SaveManifest(man models.NoteManifest) error
 
 	// sync files (sync.go)
 	GetHashes() ([]string, error)
 	GetManifest(hash string) (*models.NoteManifest, error)
+	HasNote(hash string) bool
 
 	// downloading files (node.go -> DownloadBlob)
 	FileExists(fhash string) bool // проверить, есть ли файл на диске
 	SaveBlob(fhash string, r io.Reader) error
 }
 
-// подключение ноды к локальной сети
-func NodeConnect(privpath string, port int) (*Node, error) {
-	f, err := os.ReadFile(privpath)
+// функция которая вызывается при подключении ноды к локальной сети
+func ConnNode(prkpath string, port int) (*Node, error) {
+	_, err := os.Stat(prkpath)
 
-	if err != nil {
-		return mknode(privpath, port)
+	var (
+		pub  ed25519.PublicKey
+		priv ed25519.PrivateKey
+	)
+
+	if err == nil {
+		f, err := os.ReadFile(prkpath)
+		if err != nil {
+			log.Printf("[NODE] error configuring node")
+			return nil, err
+		}
+
+		priv = ed25519.PrivateKey(f)
+		pub = priv.Public().(ed25519.PublicKey)
+	} else {
+		pub, priv, err = ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, err
+		}
+
+		err = os.WriteFile(prkpath, priv, 0600)
+		if err != nil {
+			return nil, err
+		}
 	}
-
-	priv := ed25519.PrivateKey(f)
-	pub := priv.Public().(ed25519.PublicKey)
-
-	return &Node{
-		PublicK:  pub,
-		PrivateK: priv,
-		UID:      hex.EncodeToString(pub),
-		Port:     port,
-		peers:    *NewPM(),
-	}, nil
-}
-
-// вспомогательная функция для инициализации узла
-func mknode(dst string, port int) (*Node, error) {
-	// генерим ключи
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		panic(err)
-	}
-
-	err = os.WriteFile(dst, priv, 0600)
-	if err != nil {
-		return nil, err
-	}
-	// ^-- сохраняем приватный ключ в указанную директорию
 
 	return &Node{
 		PublicK:  pub,
@@ -112,9 +108,9 @@ func (n *Node) ProcessFile(src, title, desc string) []byte {
 
 	man.AuthorUID = n.UID
 	man.Sign(n.PrivateK)
-	man.Hash = hex.EncodeToString(man.CalcId())
+	man.Hash = hex.EncodeToString(man.CalcID())
 
-	n.Storage.SaveFile(*man)
+	n.Storage.SaveManifest(*man)
 
 	manjson, _ := json.MarshalIndent(man, " ", " ")
 	return manjson
@@ -153,11 +149,4 @@ func (n *Node) StartClean(ctx context.Context) {
 			return
 		}
 	}
-}
-
-// GET /api/peers
-func (n *Node) GetPeersHandler(w http.ResponseWriter, r *http.Request) {
-	peers := n.GetConns()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(peers)
 }

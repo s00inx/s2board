@@ -10,8 +10,21 @@ import (
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// GET /api/sync : получить список всех хешей конкретной ноды
-func (a *App) synch(w http.ResponseWriter, r *http.Request) {
+// GET /api/list : получить список всех хешей в локальной сети
+func (a *App) listallh(w http.ResponseWriter, r *http.Request) {
+	mlist := a.st.GetManlist()
+
+	json.NewEncoder(w).Encode(mlist)
+}
+
+// POST /api/bye/{peerid}
+func (a *App) byeh(w http.ResponseWriter, r *http.Request) {
+	// tpid := r.PathValue("peerid")
+
+}
+
+// GET /api/hello : получить список всех хешей конкретной ноды
+func (a *App) helloh(w http.ResponseWriter, r *http.Request) {
 	hashes, err := a.curnode.GetHashes()
 	if err != nil {
 		http.Error(w, "", 500)
@@ -66,7 +79,7 @@ func (a *App) recvh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.st.SaveFile(man); err != nil {
+	if err := a.st.SaveManifest(man); err != nil {
 		http.Error(w, "storage error", 500)
 		return
 	}
@@ -87,11 +100,4 @@ func (a *App) testh(w http.ResponseWriter, r *http.Request) {
 
 	json.Unmarshal(manb, manifest)
 	go a.curnode.Broadcast(manifest)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "success",
-		"hash":   manifest.Hash,
-		"note":   manifest.Title,
-	})
 }

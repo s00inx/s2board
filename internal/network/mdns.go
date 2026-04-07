@@ -15,7 +15,7 @@ import (
 
 // инициализируем zeroconf-сервис и передаем туда наш найденный сетевой интерфейс
 // и uid для идентификации ноды
-func InitMdns(ip *net.Interface, uid string, port int) (*zeroconf.Server, error) {
+func InitMdns(ip *net.Interface, uid, name string, port int) (*zeroconf.Server, error) {
 	if ip == nil {
 		return nil, fmt.Errorf("can't find any valid net interface, please connect to hotspot")
 	}
@@ -30,6 +30,7 @@ func InitMdns(ip *net.Interface, uid string, port int) (*zeroconf.Server, error)
 		port,
 		[]string{
 			"uid=" + uid,
+			"name=" + name,
 		},
 		[]net.Interface{*ip},
 	)
@@ -49,7 +50,7 @@ func GetLocalIface() (*net.Interface, string) {
 		return nil, ""
 	}
 
-	// перебираем интерфейсы (обычно loopback и wlan)
+	// перебираем интерфейсы
 	for _, ie := range ifaces {
 		addrs, _ := ie.Addrs() // адреса интерфейса
 

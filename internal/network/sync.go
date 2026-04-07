@@ -22,6 +22,10 @@ func (n *Node) GetHashes() ([]string, error) {
 func (n *Node) FetchManifests(hashes []string) ([]models.NoteManifest, error) {
 	var res []models.NoteManifest
 
+	if len(hashes) > 100 {
+		hashes = hashes[:100]
+	}
+
 	for _, h := range hashes {
 		man, err := n.Storage.GetManifest(h)
 		if err == nil && man != nil {
@@ -34,7 +38,6 @@ func (n *Node) FetchManifests(hashes []string) ([]models.NoteManifest, error) {
 
 // полностью синхронизировать 2 ноды между собой в несколько этапов
 func (n *Node) Syncw(p models.Peer) error {
-	// делаю одного клиента с таймаутом
 	c := &http.Client{Timeout: 10 * time.Second}
 
 	// 1: спрашиваю у ноды список хешей всех записей которые у нее есть
@@ -43,14 +46,13 @@ func (n *Node) Syncw(p models.Peer) error {
 		return err
 	}
 	defer resp.Body.Close()
-	var excl []string
-	if err := json.NewDecoder(resp.Body).Decode(&excl); err != nil {
+	var allh []string
+	if err := json.NewDecoder(resp.Body).Decode(&allh); err != nil {
 		return err
 	}
 	var missing []string // собираю список нужных хешей
-	for _, h := range excl {
-		_, err := n.Storage.GetManifest(h)
-		if err != nil {
+	for _, h := range allh {
+		if !n.Storage.HasNote(h) {
 			missing = append(missing, h)
 		}
 	}
@@ -60,9 +62,9 @@ func (n *Node) Syncw(p models.Peer) error {
 	}
 
 	log.Printf("[SYNC] found %d missing notes from %s, fetching...", len(missing), p.UID[:8])
-
-	// 2: делаем запрос к ноде, чтобы она выдала нам манифеств только по нужным хешам
 	body, _ := json.Marshal(missing)
+
+	// 2: делаем запрос к ноде, чтобы она выдала нам манифесты только по нужным хешам
 	fresp, err := c.Post(
 		fmt.Sprintf("http://%s:%d/api/sync/fetch", p.IP, p.Port),
 		"application/json",
@@ -72,6 +74,7 @@ func (n *Node) Syncw(p models.Peer) error {
 		return err
 	}
 	defer fresp.Body.Close()
+
 	var newnotes []models.NoteManifest
 	if err := json.NewDecoder(fresp.Body).Decode(&newnotes); err != nil {
 		return err
@@ -79,7 +82,6 @@ func (n *Node) Syncw(p models.Peer) error {
 
 	// добавляем манифесты в свое локальное хранилище
 	for _, man := range newnotes {
-		// проверяем ноду
 		if !man.Verify() {
 			log.Printf("[WARNING] fake signature for note %s from peer %s --> ignored.", man.Hash, p.UID[:8])
 			continue
@@ -93,11 +95,13 @@ func (n *Node) Syncw(p models.Peer) error {
 		// 	}
 		// }
 
-		err = n.Storage.SaveFile(man)
+		err = n.Storage.SaveManifest(man)
 		if err == nil {
 			log.Printf("[SYNC] added new note: %s", man.Title)
 		}
 	}
+
+	log.Printf("[SYNC] synced with %s - %s", p.UID, p.Name)
 
 	return nil
 }

@@ -6,13 +6,14 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/s00inx/s2board/internal/models"
 	"go.etcd.io/bbolt"
 )
 
 // сохранить файл в бд
-func (s *Storage) SaveFile(man models.NoteManifest) error {
+func (s *Storage) SaveManifest(man models.NoteManifest) error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("entries"))
 
@@ -85,4 +86,57 @@ func (s *Storage) GetHashes() ([]string, error) {
 	}
 
 	return hashes, nil
+}
+
+func (s *Storage) HasNote(hash string) bool {
+	var exists bool
+
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("manifests"))
+		if b == nil {
+			return nil
+		}
+
+		if v := b.Get([]byte(hash)); v != nil {
+			exists = true
+		}
+		return nil
+	})
+
+	if err != nil {
+		log.Printf("[ERR] storage hasnote: %v", err)
+		return false
+	}
+
+	return exists
+}
+
+func (s *Storage) GetManlist() []models.NoteManifest {
+	var manlist []models.NoteManifest
+
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		// Выбираем бакет с манифестами
+		b := tx.Bucket([]byte("manifests"))
+		if b == nil {
+			return nil
+		}
+
+		return b.ForEach(func(k, v []byte) error {
+			var m models.NoteManifest
+
+			if err := json.Unmarshal(v, &m); err != nil {
+				log.Printf("[WARN] failed to unmarshal manifest %s: %v", string(k), err)
+				return nil
+			}
+
+			manlist = append(manlist, m)
+			return nil
+		})
+	})
+
+	if err != nil {
+		log.Printf("[ERR] storage getmans: %v", err)
+	}
+
+	return manlist
 }

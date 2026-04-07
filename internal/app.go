@@ -40,7 +40,7 @@ func (a *App) Run() {
 	}
 	a.st = st
 
-	curnode, err := network.NodeConnect(filepath.Join(st.Dir, "node.key"), a.cfg.Port)
+	curnode, err := network.ConnNode(filepath.Join(st.Dir, "node.key"), a.cfg.Port)
 	if err != nil {
 		log.Fatal("[FATAL] node connect error: ", err)
 	}
@@ -55,7 +55,7 @@ func (a *App) Run() {
 
 	go a.curnode.Discover(context.Background()) // поиск соседей
 
-	mdnsrv, err := network.InitMdns(liface, a.curnode.UID, a.cfg.Port)
+	mdnsrv, err := network.InitMdns(liface, a.curnode.UID, a.cfg.Name, a.cfg.Port)
 	if err != nil {
 		log.Println("[WARN] mDNS registration failed: ", err)
 	} else {
@@ -74,22 +74,23 @@ func (a *App) Run() {
 func (a *App) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// Главная
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[NETWORK] new client conn: %s", r.RemoteAddr)
+		log.Printf("[NETWORK] new client conn: %s_%s", r.RemoteAddr, r.UserAgent())
 
 		notes, _ := a.st.GetHashes()
 		fmt.Fprintf(w, "S2BOARD Active. Notes count: %d", len(notes))
 	})
 
-	// mux.HandleFunc("GET /api/notes", a.listNotesHandler) // список всех заметок
-	mux.HandleFunc("GET /api/dl/{hash}", a.dlh) // скачать файл
+	mux.HandleFunc("GET /api/list", a.listallh)
+	mux.HandleFunc("GET /api/dl/{hash}", a.dlh)
+
 	mux.HandleFunc("POST /api/recv", a.recvh)
 
-	mux.HandleFunc("GET /api/sync", a.synch)
-	mux.HandleFunc("POST /api/sync/fetch", a.fetchh)
+	mux.HandleFunc("GET /api/hello", a.helloh)
+	mux.HandleFunc("POST /api/fetch", a.fetchh)
+	mux.HandleFunc("POST /api/bye", a.byeh)
 
-	// mux.HandleFunc("GET /api/peers", a.curnode.GetPeersHandler)
+	// test handlers
 	mux.HandleFunc("POST /api/test", a.testh)
 
 	return mux

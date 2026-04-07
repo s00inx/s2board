@@ -73,21 +73,26 @@ func (n *Node) Discover(ctx context.Context) {
 				continue
 			}
 
-			var uid string
+			var uid, pname string
+
 			for _, f := range entry.Text {
 				if len(f) > 4 && f[:4] == "uid=" {
 					uid = f[4:]
+				}
+				if f[:4] == "name=" {
+					pname = f[4:]
 				}
 			}
 
 			if uid != "" && uid != n.UID {
 				n.peers.Add(models.Peer{
 					UID:      uid,
+					Name:     pname,
 					IP:       targetip,
 					Port:     entry.Port,
 					LastSeen: time.Now(),
 				})
-				log.Printf("\n[NEW PEER] Found node: %s at %s:%d\n", uid[:8], targetip, entry.Port)
+				log.Printf("\n[NEW PEER] %s at %s:%d - %s\n", uid[:8], targetip, entry.Port, pname)
 			}
 		}
 	}(en)
@@ -111,4 +116,8 @@ func (n *Node) GetConns() []models.Peer {
 	}
 
 	return plist
+}
+
+func (n *Node) Bye() []models.NoteManifest {
+
 }
