@@ -1,6 +1,7 @@
 // все что касается внутренней бд
 // !!: здесь може быть любая бд, выбран бболт из-за скорости и безопасности данных (но можно использовать и sql, все что угодно)
 // см. network/node -> nodeStorage
+// в бд хранятся ТОЛЬКО файлы, которые есть непосредственно на диске, то есть которые узел может раздать
 package storage
 
 import (
@@ -13,7 +14,7 @@ import (
 )
 
 // сохранить файл в бд
-func (s *Storage) SaveManifest(man models.NoteManifest) error {
+func (s *Storage) Save2db(man models.Manifest) error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("entries"))
 
@@ -27,8 +28,8 @@ func (s *Storage) SaveManifest(man models.NoteManifest) error {
 }
 
 // взять манифест из бд по хешу
-func (s *Storage) GetManifest(hash string) (*models.NoteManifest, error) {
-	var m models.NoteManifest
+func (s *Storage) GetFMan(hash string) (*models.Manifest, error) {
+	var m models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("entries"))
@@ -48,14 +49,14 @@ func (s *Storage) GetManifest(hash string) (*models.NoteManifest, error) {
 }
 
 // удалить запись из бд по хешу
-func (s *Storage) DeleteManifest(hash string) error {
+func (s *Storage) DelManifest(hash string) error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("entries"))
 		if b == nil {
 			return fmt.Errorf("bucket not found")
 		}
 
-		var m models.NoteManifest
+		var m models.Manifest
 		data := b.Get([]byte(hash))
 		if data != nil {
 			json.Unmarshal(data, &m)
@@ -67,7 +68,7 @@ func (s *Storage) DeleteManifest(hash string) error {
 }
 
 // получить все хеши для синхронизации
-func (s *Storage) GetHashes() ([]string, error) {
+func (s *Storage) GetHashesList() ([]string, error) {
 	var hashes []string
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
@@ -111,8 +112,8 @@ func (s *Storage) HasNote(hash string) bool {
 	return exists
 }
 
-func (s *Storage) GetManlist() []models.NoteManifest {
-	var manlist []models.NoteManifest
+func (s *Storage) GetManlist() []models.Manifest {
+	var manlist []models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
 		// Выбираем бакет с манифестами
@@ -122,7 +123,7 @@ func (s *Storage) GetManlist() []models.NoteManifest {
 		}
 
 		return b.ForEach(func(k, v []byte) error {
-			var m models.NoteManifest
+			var m models.Manifest
 
 			if err := json.Unmarshal(v, &m); err != nil {
 				log.Printf("[WARN] failed to unmarshal manifest %s: %v", string(k), err)

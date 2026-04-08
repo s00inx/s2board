@@ -13,5 +13,5 @@ test1:
 test2:
 	go run ./cmd/main.go -port 8081 -dir ./data2 -name test2
 
-test:
-	bash ./test3nodes.sh
+cleant:
+	grep ./data* | xargs rm -rf

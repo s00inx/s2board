@@ -12,20 +12,20 @@ import (
 )
 
 // потокобезопасная мапа для активных соединений, но без ненужных интерфейсов
-type PeerMap struct {
+// map[uid]Peer_struct
+type peermap struct {
 	d  map[string]models.Peer
 	mu sync.Mutex
 }
 
-// конструктор для мапы
-func NewPM() *PeerMap {
-	return &PeerMap{
+func NewPM() *peermap {
+	return &peermap{
 		d: make(map[string]models.Peer, 0),
 	}
 }
 
 // добавить значение в мапу потокобезопасно
-func (pm *PeerMap) Add(p models.Peer) {
+func (pm *peermap) Add(p models.Peer) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -33,25 +33,10 @@ func (pm *PeerMap) Add(p models.Peer) {
 }
 
 // удалить значение из мапы
-func (pm *PeerMap) Remove(uid string) {
+func (pm *peermap) Remove(uid string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	delete(pm.d, uid)
-}
-
-// удалить ноды которые давно не были в сети
-func (pm *PeerMap) Cleanup(timeout time.Duration) int {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	rm := 0
-	for uid, peer := range pm.d {
-		if time.Since(peer.LastSeen) > timeout {
-			pm.Remove(uid)
-			rm++
-		}
-	}
-	return rm
 }
 
 // найти узел в сети
@@ -79,13 +64,13 @@ func (n *Node) Discover(ctx context.Context) {
 				if len(f) > 4 && f[:4] == "uid=" {
 					uid = f[4:]
 				}
-				if f[:4] == "name=" {
-					pname = f[4:]
+				if f[:5] == "name=" {
+					pname = f[5:]
 				}
 			}
 
 			if uid != "" && uid != n.UID {
-				n.peers.Add(models.Peer{
+				n.peermap.Add(models.Peer{
 					UID:      uid,
 					Name:     pname,
 					IP:       targetip,
@@ -107,17 +92,13 @@ func (n *Node) Discover(ctx context.Context) {
 
 // найти активные соединения на момент вызова функции
 func (n *Node) GetConns() []models.Peer {
-	n.peers.mu.Lock()
-	defer n.peers.mu.Unlock()
+	n.peermap.mu.Lock()
+	defer n.peermap.mu.Unlock()
 
-	plist := make([]models.Peer, 0, len(n.peers.d))
-	for _, v := range n.peers.d {
+	plist := make([]models.Peer, 0, len(n.peermap.d))
+	for _, v := range n.peermap.d {
 		plist = append(plist, v)
 	}
 
 	return plist
-}
-
-func (n *Node) Bye() []models.NoteManifest {
-
 }

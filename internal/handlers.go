@@ -4,10 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
-
-	"github.com/s00inx/s2board/internal/models"
 )
 
 // GET /api/list : получить список всех хешей в локальной сети
@@ -73,31 +70,36 @@ func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/recv : получить манифест
 func (a *App) recvh(w http.ResponseWriter, r *http.Request) {
-	var man models.NoteManifest
-	if err := json.NewDecoder(r.Body).Decode(&man); err != nil {
-		http.Error(w, "bad json", 400)
-		return
-	}
+	// var man models.Manifest
+	// if err := json.NewDecoder(r.Body).Decode(&man); err != nil {
+	// 	http.Error(w, "bad json", 400)
+	// 	return
+	// }
 
-	if err := a.st.SaveManifest(man); err != nil {
-		http.Error(w, "storage error", 500)
-		return
-	}
+	// if err := a.st.SaveManifest(man); err != nil {
+	// 	http.Error(w, "storage error", 500)
+	// 	return
+	// }
 
-	log.Printf("[RECV] new manifest received: %s", man.Hash[:8])
-	w.WriteHeader(http.StatusOK)
+	// log.Printf("[RECV] new manifest received: %s", man.Hash[:8])
+	// w.WriteHeader(http.StatusOK)
+}
+
+// POST /api/create : создать новую заметку
+func (a *App) createh(w http.ResponseWriter, r *http.Request) {
+
 }
 
 // vibecoded :((
 func (a *App) testh(w http.ResponseWriter, r *http.Request) {
-	testFileName := "test.txt"
-	if _, err := os.Stat(testFileName); os.IsNotExist(err) {
-		os.WriteFile(testFileName, []byte("kto chitaet krosavchik =))"), 0644)
-	}
+	// testFileName := "test.txt"
+	// if _, err := os.Stat(testFileName); os.IsNotExist(err) {
+	// 	os.WriteFile(testFileName, []byte("kto chitaet krosavchik =))"), 0644)
+	// }
 
-	manb := a.curnode.ProcessFile(testFileName, "test", "sent via p2p")
-	manifest := &models.NoteManifest{}
+	// manb := a.curnode.ProcessFile(testFileName, "test", "sent via p2p")
+	// manifest := &models.Manifest{}
 
-	json.Unmarshal(manb, manifest)
-	go a.curnode.Broadcast(manifest)
+	// json.Unmarshal(manb, manifest)
+	// go a.curnode.Broadcast(manifest)
 }

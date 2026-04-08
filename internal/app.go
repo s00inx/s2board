@@ -77,7 +77,7 @@ func (a *App) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[NETWORK] new client conn: %s_%s", r.RemoteAddr, r.UserAgent())
 
-		notes, _ := a.st.GetHashes()
+		notes, _ := a.st.GetHashesList()
 		fmt.Fprintf(w, "S2BOARD Active. Notes count: %d", len(notes))
 	})
 

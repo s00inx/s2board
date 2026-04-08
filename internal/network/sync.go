@@ -15,19 +15,19 @@ import (
 
 // получить список всех хешей которые есть у конкретной ноды
 func (n *Node) GetHashes() ([]string, error) {
-	return n.Storage.GetHashes()
+	return n.Storage.GetHashesList()
 }
 
 // принимает список хешей и отдает полные манифесты
-func (n *Node) FetchManifests(hashes []string) ([]models.NoteManifest, error) {
-	var res []models.NoteManifest
+func (n *Node) FetchManifests(hashes []string) ([]models.Manifest, error) {
+	var res []models.Manifest
 
 	if len(hashes) > 100 {
 		hashes = hashes[:100]
 	}
 
 	for _, h := range hashes {
-		man, err := n.Storage.GetManifest(h)
+		man, err := n.Storage.GetFMan(h)
 		if err == nil && man != nil {
 			res = append(res, *man)
 		}
@@ -75,7 +75,7 @@ func (n *Node) Syncw(p models.Peer) error {
 	}
 	defer fresp.Body.Close()
 
-	var newnotes []models.NoteManifest
+	var newnotes []models.Manifest
 	if err := json.NewDecoder(fresp.Body).Decode(&newnotes); err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (n *Node) Syncw(p models.Peer) error {
 		// 	}
 		// }
 
-		err = n.Storage.SaveManifest(man)
+		err = n.Storage.Save2db(man)
 		if err == nil {
 			log.Printf("[SYNC] added new note: %s", man.Title)
 		}

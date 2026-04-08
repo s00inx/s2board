@@ -47,7 +47,7 @@ func (s *Storage) saveHashed(file *os.File, src string) (string, error) {
 }
 
 // регистрируем наш файл непосредственно открывая его на диске.
-func (s *Storage) RegisterFile(src string) (string, int64, error) {
+func (s *Storage) Save2disk(src string) (string, int64, error) {
 	file, err := os.Open(src)
 	if err != nil {
 		return "", 0, err

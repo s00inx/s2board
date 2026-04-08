@@ -12,7 +12,7 @@ import (
 )
 
 // раздать файл всем кто находится в одной локальной сети
-func (n *Node) Broadcast(man *models.NoteManifest) {
+func (n *Node) Broadcast(man *models.Manifest) {
 	ps := n.GetConns()
 
 	if len(ps) == 0 {
