@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -13,40 +14,40 @@ import (
 )
 
 // мапа пиров которые раздают конкретный файл (если его нет у ноды)
-// map[id заметки]список_пиров
+// map[хкш файла]список_id_пиров (сделано потому что мы имеем дело с реальными файлами на диске, так зачем давать к ним лоступ по айди манифеста?)
 type fpeermap struct {
 	mu sync.Mutex
-	d  map[string][]models.Peer
+	d  map[string][]string
 }
 
 func newFpm() *fpeermap {
 	return &fpeermap{
-		d: make(map[string][]models.Peer, 0),
+		d: make(map[string][]string, 0),
 	}
 }
 
 // добавить пир и хеш файла, который он раздает в мапу (для этого лочично нужен манифест и сам пир)
-func (fm *fpeermap) Add(hash string, peer models.Peer) {
+func (fm *fpeermap) add(hash string, peer models.Peer) {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
 
 	for _, p := range fm.d[hash] {
-		if p.UID == peer.UID {
+		if p == peer.UID {
 			return
 		}
 	}
 
-	fm.d[hash] = []models.Peer{peer}
+	fm.d[hash] = append(fm.d[hash], peer.UID)
 }
 
 // удалить конкретный пир из всех списков (в том случае если он не активен)
-func (fm *fpeermap) RmPeer(peer models.Peer) {
+func (fm *fpeermap) rmPeer(peerid string) {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
 
 	for _, ps := range fm.d {
 		for i, pr := range ps {
-			if pr == peer {
+			if pr == peerid {
 				ps = append(ps[:i], ps[i+1:]...)
 			}
 		}
@@ -54,11 +55,19 @@ func (fm *fpeermap) RmPeer(peer models.Peer) {
 }
 
 // удалить манифест из карты пиров вместе со всеми пирами (в случае есои из сети исчез сам манифест)
-func (fm *fpeermap) RmMan(hash string) {
+func (fm *fpeermap) rmMan(hash string) {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
 
 	delete(fm.d, hash)
+}
+
+func (fm *fpeermap) getpeerlist(hash string) ([]string, bool) {
+	fm.mu.Lock()
+	defer fm.mu.Unlock()
+
+	h, ok := fm.d[hash]
+	return h, ok
 }
 
 // интерфейс для локального хранилища конкретной ноды
@@ -125,7 +134,7 @@ func (n *Node) Recvf(p models.Peer, man *models.Manifest) error {
 		}
 	}
 
-	n.fpeers.Add(man.FileHash, p)
+	n.fpeers.add(man.FileHash, p)
 	// и спрашиваем у других есть ли у них файл с этим хешем
 
 	// когда одна нода делает broadcast, а наша нода его принимает, в логах должно отобразиться
@@ -134,18 +143,54 @@ func (n *Node) Recvf(p models.Peer, man *models.Manifest) error {
 	return nil
 }
 
+// скачать файл у пира по его хешу (в несколько этапов)
+// активируется при вызове хендлера скачивания (/api/dl) \ принять хеш -> выдать ридер с самим файлом
+// (файл если он физически на ноде, либо потом если текуцщая нода выступает как прокси)
+func (n *Node) Dlf(fhash string) (io.ReadCloser, error) {
+	// 1: ищем в своем хранилище
+	if n.Storage.FileExists(fhash) {
+		return os.Open(filepath.Join(fhash[:2], fhash))
+	}
+
+	// 2: ищем этот хеш в пир мапе
+	c := &http.Client{Timeout: 10 * time.Second}
+	// ^-- todo: использовать общего клиента
+
+	var err error
+	if hostl, ok := n.fpeers.getpeerlist(fhash); ok {
+		for _, fpeerid := range hostl {
+			fpeer, ok := n.peermap.d[fpeerid]
+			if !ok {
+				continue
+			}
+
+			dsturlp := fmt.Sprintf("http://%s:%d/api", fpeer.IP, fpeer.Port)
+
+			hfr, err := c.Get(dsturlp + "/hasf/" + fhash)
+			if err != nil {
+				n.RmPeer(fpeerid)
+			}
+
+			if hfr.StatusCode == http.StatusOK {
+				r, err := c.Get(dsturlp + "/dl/" + fhash)
+				if err != nil {
+					hfr.Body.Close()
+					continue
+				}
+				hfr.Body.Close()
+				return r.Body, err
+			} else {
+				hfr.Body.Close()
+				continue
+			}
+		}
+	}
+
+	// 3: если до сюда дошло - файл не скачался -> ошибка
+	return nil, err
+}
+
 // скачать файл у пира
 func (n *Node) DlBlob(p models.Peer, fhash string) error {
-	c := http.Client{Timeout: 30 * time.Second}
-	resp, err := c.Get(fmt.Sprintf("http://%s:%d/api/dl/%s", p.IP, p.Port, fhash))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("peer returned status: %d", resp.StatusCode)
-	}
-
-	return n.Storage.SaveBlob(fhash, resp.Body)
+	return nil
 }

@@ -45,3 +45,21 @@ func (n *Node) Broadcast(man *models.Manifest) {
 		}(p)
 	}
 }
+
+// когда нода выключается, она должна разослать всем прощальное сообщение со списком всех хешей, которые были у нее
+func (n *Node) NodeBye(c http.Client) {
+	cconns := n.GetConns()
+
+	log.Printf("[Bye] notifying to %d peers", len(cconns))
+
+	var actc int
+	for _, p := range cconns {
+		_, err := c.Get(fmt.Sprintf("http://%s:%d/api/bye/%s", p.IP, p.Port, n.UID))
+		if err != nil {
+			continue
+		}
+		actc++
+	}
+
+	log.Printf("[Bye] said bye to %d/%d peers", actc, len(cconns))
+}

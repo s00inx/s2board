@@ -82,13 +82,15 @@ func (a *App) setupRoutes() *http.ServeMux {
 	})
 
 	mux.HandleFunc("GET /api/list", a.listallh)
+
 	mux.HandleFunc("GET /api/dl/{hash}", a.dlh)
+	mux.HandleFunc("GET /api/hasf/{hash}", a.hasfh)
 
 	mux.HandleFunc("POST /api/recv", a.recvh)
 
 	mux.HandleFunc("GET /api/hello", a.helloh)
 	mux.HandleFunc("POST /api/fetch", a.fetchh)
-	mux.HandleFunc("POST /api/bye", a.byeh)
+	mux.HandleFunc("GET /api/bye/{peer_id}", a.byeh)
 
 	// test handlers
 	mux.HandleFunc("POST /api/test", a.testh)

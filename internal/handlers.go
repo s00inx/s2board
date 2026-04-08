@@ -2,9 +2,9 @@ package internal
 
 import (
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
-	"path/filepath"
 )
 
 // GET /api/list : получить список всех хешей в локальной сети
@@ -12,12 +12,6 @@ func (a *App) listallh(w http.ResponseWriter, r *http.Request) {
 	mlist := a.st.GetManlist()
 
 	json.NewEncoder(w).Encode(mlist)
-}
-
-// POST /api/bye/{peerid}
-func (a *App) byeh(w http.ResponseWriter, r *http.Request) {
-	// tpid := r.PathValue("peerid")
-
 }
 
 // GET /api/hello : получить список всех хешей конкретной ноды
@@ -58,14 +52,46 @@ func (a *App) fetchh(w http.ResponseWriter, r *http.Request) {
 // GET /api/dl/{hash} : скачать файл по его хешу
 func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
 	hval := r.PathValue("hash")
-	if len(hval) < 2 {
-		http.Error(w, "invalid hash", 400)
+	if len(hval) < 8 {
+		http.Error(w, "invalid hash", http.StatusBadRequest)
 		return
 	}
 
-	path := filepath.Join(a.cfg.DataDir, "blobs", hval[:2], hval)
+	content, err := a.curnode.Dlf(hval)
+	if err != nil {
+		log.Printf("[ERR] Download failed for %s: %v", hval[:8], err)
+		http.Error(w, "File not found in network", http.StatusNotFound)
+		return
+	}
+	defer content.Close()
+
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+hval+"\"")
-	http.ServeFile(w, r, path)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	// w.Header().Set("Content-Length")
+
+	_, err = io.Copy(w, content)
+	if err != nil {
+		log.Printf("[ERR] Stream error for %s: %v", hval[:8], err)
+	}
+}
+
+// GET /api/hasf/{hash} : выяснить есть ли файл у ноды
+func (a *App) hasfh(w http.ResponseWriter, r *http.Request) {
+	hashval := r.PathValue("hash")
+
+	if !a.curnode.Storage.FileExists(hashval) {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(200)
+}
+
+func (a *App) byeh(w http.ResponseWriter, r *http.Request) {
+	pid := r.PathValue("peer_id")
+
+	a.curnode.RmPeer(pid)
+	a.curnode.NodeBye(http.Client{})
 }
 
 // POST /api/recv : получить манифест

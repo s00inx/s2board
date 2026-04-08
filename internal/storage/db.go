@@ -1,7 +1,6 @@
 // все что касается внутренней бд
 // !!: здесь може быть любая бд, выбран бболт из-за скорости и безопасности данных (но можно использовать и sql, все что угодно)
 // см. network/node -> nodeStorage
-// в бд хранятся ТОЛЬКО файлы, которые есть непосредственно на диске, то есть которые узел может раздать
 package storage
 
 import (
@@ -13,10 +12,14 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+// есть 2 бакета (таблицы) -
+// 1: локальные файлы - те, которые лежат на диске (меняется ток при сохранении на диск, только внутри программы)
+// 2: вся доска с манифестами - меняется при синхронизации и отдается на фронтенд
+
 // сохранить файл в бд
 func (s *Storage) Save2db(man models.Manifest) error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("entries"))
+		b := tx.Bucket([]byte("local"))
 
 		data, err := json.Marshal(man)
 		if err != nil {
@@ -32,7 +35,7 @@ func (s *Storage) GetFMan(hash string) (*models.Manifest, error) {
 	var m models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("entries"))
+		b := tx.Bucket([]byte("local"))
 		if b == nil {
 			return fmt.Errorf("bucket not found")
 		}
@@ -51,7 +54,7 @@ func (s *Storage) GetFMan(hash string) (*models.Manifest, error) {
 // удалить запись из бд по хешу
 func (s *Storage) DelManifest(hash string) error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("entries"))
+		b := tx.Bucket([]byte("local"))
 		if b == nil {
 			return fmt.Errorf("bucket not found")
 		}
@@ -72,7 +75,7 @@ func (s *Storage) GetHashesList() ([]string, error) {
 	var hashes []string
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("entries"))
+		b := tx.Bucket([]byte("local"))
 		if b == nil {
 			return nil
 		}
@@ -93,7 +96,7 @@ func (s *Storage) HasNote(hash string) bool {
 	var exists bool
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("manifests"))
+		b := tx.Bucket([]byte("local"))
 		if b == nil {
 			return nil
 		}
@@ -116,8 +119,7 @@ func (s *Storage) GetManlist() []models.Manifest {
 	var manlist []models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		// Выбираем бакет с манифестами
-		b := tx.Bucket([]byte("manifests"))
+		b := tx.Bucket([]byte("local"))
 		if b == nil {
 			return nil
 		}

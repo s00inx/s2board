@@ -62,3 +62,8 @@ func ConnNode(prkpath string, port int) (*Node, error) {
 		peermap:  *NewPM(),
 	}, nil
 }
+
+func (n *Node) RmPeer(pid string) {
+	n.fpeers.rmPeer(pid)
+	n.peermap.Remove(pid)
+}
