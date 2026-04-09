@@ -87,8 +87,15 @@ func (m *Manifest) Sign(privk ed25519.PrivateKey) error {
 
 // проверить хкш
 func (m *Manifest) Verify() bool {
-	pubk, _ := hex.DecodeString(m.AuthorUID)
-	sig, _ := hex.DecodeString(m.Signature)
+
+	pubk, err := hex.DecodeString(m.AuthorUID)
+	if err != nil || len(pubk) != ed25519.PublicKeySize {
+		return false
+	}
+	sig, err := hex.DecodeString(m.Signature)
+	if err != nil {
+		return false
+	}
 
 	hbytes := m.CalcID()
 

@@ -2,9 +2,15 @@ package internal
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+
+	"github.com/s00inx/s2board/internal/models"
 )
 
 // GET /api/list : получить список всех хешей в локальной сети
@@ -16,7 +22,7 @@ func (a *App) listallh(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/hello : получить список всех хешей конкретной ноды
 func (a *App) helloh(w http.ResponseWriter, r *http.Request) {
-	hashes, err := a.curnode.GetHashes()
+	hashes, err := a.Node.GetHashes()
 	if err != nil {
 		http.Error(w, "", 500)
 		return
@@ -36,7 +42,7 @@ func (a *App) fetchh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m2fetch, err := a.curnode.FetchManifests(hashes)
+	m2fetch, err := a.Node.FetchManifests(hashes)
 	if err != nil {
 		log.Printf("[ERR] fetch: db error: %v", err)
 		http.Error(w, "internal database error", http.StatusInternalServerError)
@@ -57,19 +63,25 @@ func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := a.curnode.Dlf(hval)
+	c, err := a.Node.Dlf(hval)
 	if err != nil {
 		log.Printf("[ERR] Download failed for %s: %v", hval[:8], err)
 		http.Error(w, "File not found in network", http.StatusNotFound)
 		return
 	}
-	defer content.Close()
+	defer c.Close()
 
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+hval+"\"")
+	man, _ := a.Node.Storage.Getmanfh(hval, "virtual")
+	if man != nil {
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+url.PathEscape(man.Title)+"\"")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", man.Size))
+	} else {
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+hval+"\"")
+	}
+
 	w.Header().Set("Content-Type", "application/octet-stream")
-	// w.Header().Set("Content-Length")
 
-	_, err = io.Copy(w, content)
+	_, err = io.Copy(w, c)
 	if err != nil {
 		log.Printf("[ERR] Stream error for %s: %v", hval[:8], err)
 	}
@@ -79,7 +91,7 @@ func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
 func (a *App) hasfh(w http.ResponseWriter, r *http.Request) {
 	hashval := r.PathValue("hash")
 
-	if !a.curnode.Storage.FileExists(hashval) {
+	if !a.Node.Storage.FileExists(hashval) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -87,45 +99,81 @@ func (a *App) hasfh(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
+// GET /api/bye/{peer_id} : обработать отключение конкретного пира
 func (a *App) byeh(w http.ResponseWriter, r *http.Request) {
 	pid := r.PathValue("peer_id")
 
-	a.curnode.RmPeer(pid)
-	a.curnode.NodeBye(http.Client{})
+	a.Node.RecvBye(pid)
+	log.Printf("peer %s is unavailable now", pid[:8])
 }
 
-// POST /api/recv : получить манифест
+// POST /api/recv : получить манифест от другого пира
 func (a *App) recvh(w http.ResponseWriter, r *http.Request) {
-	// var man models.Manifest
-	// if err := json.NewDecoder(r.Body).Decode(&man); err != nil {
-	// 	http.Error(w, "bad json", 400)
-	// 	return
-	// }
+	var payload struct {
+		Peer models.Peer     `json:"peer"`
+		Man  models.Manifest `json:"manifest"`
+	}
 
-	// if err := a.st.SaveManifest(man); err != nil {
-	// 	http.Error(w, "storage error", 500)
-	// 	return
-	// }
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
 
-	// log.Printf("[RECV] new manifest received: %s", man.Hash[:8])
-	// w.WriteHeader(http.StatusOK)
+	// Обрабатываем манифест (сохранение в virtual, авто-загрузка и т.д.)
+	if err := a.Node.Recvf(payload.Peer, &payload.Man); err != nil {
+		log.Printf("[ERR] Recvf error: %v", err)
+		http.Error(w, "process error", 500)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
-// POST /api/create : создать новую заметку
+// POST /api/create : создать новую заметку (multipart form)
 func (a *App) createh(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "file too big", http.StatusBadRequest)
+		return
+	}
 
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	tempPath := filepath.Join(os.TempDir(), header.Filename)
+	out, err := os.Create(tempPath)
+	if err != nil {
+		http.Error(w, "internal error", 500)
+		return
+	}
+	io.Copy(out, file)
+	out.Close()
+	defer os.Remove(tempPath)
+
+	title := r.FormValue("title")
+	desc := r.FormValue("desc")
+	author := r.FormValue("author")
+
+	man, err := a.Node.Uploadf(tempPath, title, desc, author)
+	if err != nil {
+		log.Printf("[ERR] Upload failed: %v", err)
+		http.Error(w, "failed to create manifest", 500)
+		return
+	}
+
+	go a.Node.Broadcast(man)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(man)
 }
 
-// vibecoded :((
-func (a *App) testh(w http.ResponseWriter, r *http.Request) {
-	// testFileName := "test.txt"
-	// if _, err := os.Stat(testFileName); os.IsNotExist(err) {
-	// 	os.WriteFile(testFileName, []byte("kto chitaet krosavchik =))"), 0644)
-	// }
+// GET /api/getpeers : посмотреть список всех пиров в локальной сети
+func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
+	conns := a.Node.GetConns()
 
-	// manb := a.curnode.ProcessFile(testFileName, "test", "sent via p2p")
-	// manifest := &models.Manifest{}
-
-	// json.Unmarshal(manb, manifest)
-	// go a.curnode.Broadcast(manifest)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(conns)
 }

@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"time"
 
 	"github.com/s00inx/s2board/internal/models"
 )
@@ -27,7 +25,7 @@ func (n *Node) FetchManifests(hashes []string) ([]models.Manifest, error) {
 	}
 
 	for _, h := range hashes {
-		man, err := n.Storage.GetFMan(h)
+		man, err := n.Storage.Getmanh(h, "virtual")
 		if err == nil && man != nil {
 			res = append(res, *man)
 		}
@@ -38,10 +36,10 @@ func (n *Node) FetchManifests(hashes []string) ([]models.Manifest, error) {
 
 // полностью синхронизировать 2 ноды между собой в несколько этапов
 func (n *Node) Syncw(p models.Peer) error {
-	c := &http.Client{Timeout: 10 * time.Second}
+	log.Printf("[SYNC] syncing with %s", p.UID[:8])
 
 	// 1: спрашиваю у ноды список хешей всех записей которые у нее есть
-	resp, err := c.Get(fmt.Sprintf("http://%s:%d/api/sync", p.IP, p.Port))
+	resp, err := n.client.Get(fmt.Sprintf("http://%s:%d/api/hello", p.IP, p.Port))
 	if err != nil {
 		return err
 	}
@@ -58,6 +56,7 @@ func (n *Node) Syncw(p models.Peer) error {
 	}
 	// нечего качать, завершаем
 	if len(missing) == 0 {
+		log.Printf("[SYNC] nothing to sync w peer %s", p.UID[:8])
 		return nil
 	}
 
@@ -65,8 +64,8 @@ func (n *Node) Syncw(p models.Peer) error {
 	body, _ := json.Marshal(missing)
 
 	// 2: делаем запрос к ноде, чтобы она выдала нам манифесты только по нужным хешам
-	fresp, err := c.Post(
-		fmt.Sprintf("http://%s:%d/api/sync/fetch", p.IP, p.Port),
+	fresp, err := n.client.Post(
+		fmt.Sprintf("http://%s:%d/api/fetch", p.IP, p.Port),
 		"application/json",
 		bytes.NewBuffer(body),
 	)
@@ -87,15 +86,16 @@ func (n *Node) Syncw(p models.Peer) error {
 			continue
 		}
 
-		// if man.FileHash != "" && !n.Storage.FileExists(man.FileHash) {
-		// 	log.Printf("[SYNC] downloading blob for note: %s", man.Title)
-		// 	err := n.DlBlob(p, man.FileHash)
-		// 	if err != nil {
-		// 		log.Printf("[ERR] failed to download blob %s: %v", man.FileHash[:8], err)
-		// 	}
-		// }
+		if man.FileHash != "" && !n.Storage.FileExists(man.FileHash) {
+			log.Printf("[SYNC] downloading blob for note: %s", man.Title)
+			err := n.DlBlob(p, man.FileHash)
+			if err != nil {
+				log.Printf("[ERR] failed to download blob %s: %v", man.FileHash[:8], err)
+				err = n.Storage.Save2db(man, "local")
+			}
+		}
 
-		err = n.Storage.Save2db(man)
+		err = n.Storage.Save2db(man, "virtual")
 		if err == nil {
 			log.Printf("[SYNC] added new note: %s", man.Title)
 		}

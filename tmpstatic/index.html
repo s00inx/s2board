@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>s2board TEST</title>
+    <style>
+        :root {
+            --primary: #5865f2;
+            --success: #23a559;
+            --bg: #f0f2f5;
+            --card-bg: #ffffff;
+            --text: #2e3338;
+            --border: #ddd;
+        }
+
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            max-width: 1000px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }
+
+        h1 { text-align: center; color: var(--primary); font-size: 2.5rem; margin-bottom: 30px; }
+        h2 { border-bottom: 2px solid var(--border); padding-bottom: 10px; margin-top: 40px; }
+        h3 { margin-top: 0; color: var(--primary); }
+
+        .card { 
+            background: var(--card-bg); 
+            padding: 20px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08); 
+            margin-bottom: 20px;
+        }
+
+        /* Список пиров */
+        #network-status { margin-bottom: 30px; }
+        #peers-list {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            min-height: 40px;
+        }
+
+        .peer-badge {
+            background: #fff;
+            font-size: 0.85rem;
+            border: 1px solid var(--border);
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+
+        /* Сетка для доски */
+        #feed {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .form-group { margin-bottom: 15px; }
+        
+        input, textarea { 
+            width: 100%; padding: 12px; 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            box-sizing: border-box;
+            font-size: 14px;
+        }
+
+        input:focus, textarea:focus { 
+            outline: none; 
+            border-color: var(--primary); 
+            box-shadow: 0 0 0 2px rgba(88,101,242,0.2); 
+        }
+
+        button { 
+            background: var(--primary); 
+            color: white; border: none; 
+            padding: 12px 20px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        button:hover { opacity: 0.9; transform: translateY(-1px); }
+        button:active { transform: translateY(0); }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        .btn-download { background: var(--success); width: 100%; margin-top: 15px; }
+
+        .meta { 
+            font-size: 0.85em; 
+            color: #666; 
+            background: #f9f9f9; 
+            padding: 12px; 
+            border-radius: 8px;
+            margin-top: 15px;
+            word-break: break-all;
+        }
+
+        .hash-badge { font-family: monospace; background: #eee; padding: 2px 4px; border-radius: 4px; color: #333; }
+        
+        .loading-spinner { text-align: center; font-style: italic; color: #888; grid-column: 1/-1; }
+
+        @media (max-width: 600px) {
+            #feed { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<h1>/s2board</h1>
+
+<div id="network-status" class="card">
+    <h3>узлы в сети:</h3>
+    <div id="peers-list" class="loading-spinner">ищем соседей по mDNS...</div>
+</div>
+
+<div class="card" style="max-width: 600px; margin: 0 auto 40px auto;">
+    <h3>создать пост</h3>
+    <form id="uploadForm">
+        <div class="form-group">
+            <input type="text" id="title" placeholder="заголовок записи" required maxlength="100">
+        </div>
+        <div class="form-group">
+            <textarea id="desc" placeholder="описание файла или заметка..." rows="3"></textarea>
+        </div>
+        <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center;">
+            <input type="text" id="author" placeholder="погоняло" style="flex: 1;">
+            <div style="flex: 1.5; position: relative;">
+                <input type="file" id="file" required style="padding: 8px; border: 1px dashed var(--primary);">
+            </div>
+        </div>
+        <button type="submit" id="submitBtn">Черкануть!</button>
+    </form>
+</div>
+
+<h2>Последние обновления</h2>
+<div id="feed" class="loading-spinner">Синхронизация манифестов...</div>
+
+<script>
+    // --- Утилиты ---
+    const escapeHTML = (str) => {
+        if (!str) return "";
+        const p = document.createElement('p');
+        p.textContent = str;
+        return p.innerHTML;
+    };
+
+    const formatBytes = (bytes, decimals = 2) => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    };
+
+    // --- Логика Сети (Пиры) ---
+    async function loadPeers() {
+        try {
+            const response = await fetch('/api/getpeers/');
+            const peers = await response.json();
+            const peersElement = document.getElementById('peers-list');
+
+            if (!peers || peers.length === 0) {
+                peersElement.innerHTML = "<div class='peer-badge'>Ты пока один в этой сети 🕸️</div>";
+                return;
+            }
+
+            peersElement.innerHTML = peers.map(p => `
+                <div class="peer-badge">
+                    <p>${escapeHTML(p.Name)}</p> 
+                    <span style="color: #888; font-size: 0.8em;">${p.IP}:${p.Port}</span>
+                </div>
+            `).join('');
+        } catch (err) {
+            console.error("Ошибка загрузки пиров:", err);
+        }
+    }
+
+    // --- Логика Контента (Лента) ---
+    async function loadFeed() {
+        try {
+            const response = await fetch('/api/list');
+            const manifests = await response.json();
+            const feedElement = document.getElementById('feed');
+
+            if (!manifests || manifests.length === 0) {
+                feedElement.innerHTML = "<div class='loading-spinner'>Тут пока пусто... Стань первым! 🚀</div>";
+                return;
+            }
+
+            // Сортируем: новые сверху
+            feedElement.innerHTML = manifests.reverse().map(m => `
+                <div class="card">
+                    <h3 style="margin-bottom:10px">${escapeHTML(m.title)}</h3>
+                    <p style="color: #444; font-size: 0.95em;">${escapeHTML(m.desc || 'Без описания')}</p>
+                    
+                    <div class="meta">
+                        👤 <b>${escapeHTML(m.author_name || 'Аноним')}</b> <br>
+                        📦 ${formatBytes(m.size)} <br>
+                        🔑 <span class="hash-badge">${m.filehash.substring(0,12)}...</span>
+                    </div>
+
+                    <a href="/api/dl/${m.filehash}" target="_blank" style="text-decoration: none;">
+                        <button class="btn-download">⬇️ Скачать файл</button>
+                    </a>
+                </div>
+            `).join('');
+        } catch (err) {
+            console.error("Ошибка загрузки ленты:", err);
+            document.getElementById('feed').innerText = "Ошибка соединения с нодой.";
+        }
+    }
+
+    // --- Отправка данных ---
+    document.getElementById('uploadForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('submitBtn');
+        btn.disabled = true;
+        btn.innerText = "Шифруем и отправляем...";
+
+        const formData = new FormData();
+        formData.append('file', document.getElementById('file').files[0]);
+        formData.append('title', document.getElementById('title').value);
+        formData.append('desc', document.getElementById('desc').value);
+        formData.append('author', document.getElementById('author').value);
+
+        try {
+            const resp = await fetch('/api/create', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (resp.ok) {
+                document.getElementById('uploadForm').reset();
+                await loadFeed();
+                // Скролл к началу ленты
+                window.scrollTo({ top: document.querySelector('h2').offsetTop - 20, behavior: 'smooth' });
+            } else {
+                alert("Ошибка сервера: " + await resp.text());
+            }
+        } catch (err) {
+            alert("Не удалось связаться с локальной нодой");
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Опубликовать в P2P";
+        }
+    };
+
+    // --- Инициализация ---
+    loadPeers();
+    loadFeed();
+
+    // Интервалы обновления
+    setInterval(loadPeers, 10000); // Пиры раз в 10 сек
+    setInterval(loadFeed, 15000);  // Контент раз в 15 сек
+</script>
+
+</body>
+</html>

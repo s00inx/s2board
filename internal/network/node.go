@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"log"
+	"net/http"
 	"os"
 )
 
@@ -16,12 +17,18 @@ type Node struct {
 	PrivateK ed25519.PrivateKey
 	UID      string // строковое представление публичного ключа
 
-	// параметры конкретного экземпляра
+	IP   string
 	Port int
 
+	// мапа пиров (активных участников сети)
 	peermap peermap
-	fpeers  fpeermap
+	// мапа файлов, которых нету у ноды (хешфайла - список пиров)
+	fpeers fpeermap
+
+	// интерфейс для работы с памятью конкретной ноды
 	Storage nodeStorage
+	// общий клиент
+	client http.Client
 }
 
 // функция которая вызывается при подключении ноды к локальной сети
@@ -59,11 +66,13 @@ func ConnNode(prkpath string, port int) (*Node, error) {
 		PrivateK: priv,
 		UID:      hex.EncodeToString(pub),
 		Port:     port,
-		peermap:  *NewPM(),
+		peermap:  *newpeermap(),
+		fpeers:   *newfilepeermap(),
 	}, nil
 }
 
-func (n *Node) RmPeer(pid string) {
-	n.fpeers.rmPeer(pid)
-	n.peermap.Remove(pid)
+// забыть о конкретном пире (когда тот вышел из сети)
+func (n *Node) RmPeer(peeruid string) {
+	n.fpeers.rmpeer(peeruid)
+	n.peermap.rm(peeruid)
 }

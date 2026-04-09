@@ -20,7 +20,12 @@ func (n *Node) Broadcast(man *models.Manifest) {
 		return
 	}
 
-	jsond, err := json.Marshal(man)
+	payload := map[string]any{
+		"peer":     models.Peer{UID: n.UID, IP: n.IP, Port: n.Port},
+		"manifest": man,
+	}
+	jsond, err := json.Marshal(payload)
+
 	if err != nil {
 		log.Printf("[BROADCAST] marshal error: %v", err)
 		return
@@ -28,7 +33,6 @@ func (n *Node) Broadcast(man *models.Manifest) {
 
 	log.Printf("[BROADCAST] sending update to %d peers...\n", len(ps))
 	for _, p := range ps {
-		fmt.Println(p)
 		go func(peer models.Peer) {
 			c := http.Client{Timeout: 5 * time.Second}
 			resp, err := c.Post(fmt.Sprintf("http://%s:%d/api/recv", peer.IP, peer.Port), "application/json", bytes.NewBuffer(jsond))
@@ -38,7 +42,6 @@ func (n *Node) Broadcast(man *models.Manifest) {
 			}
 			defer resp.Body.Close()
 
-			fmt.Println(resp.StatusCode)
 			if resp.StatusCode == http.StatusOK {
 				log.Printf("[BROADCAST] delivered to %s", peer.UID[:8])
 			}
@@ -46,7 +49,6 @@ func (n *Node) Broadcast(man *models.Manifest) {
 	}
 }
 
-// когда нода выключается, она должна разослать всем прощальное сообщение со списком всех хешей, которые были у нее
 func (n *Node) NodeBye(c http.Client) {
 	cconns := n.GetConns()
 
@@ -62,4 +64,8 @@ func (n *Node) NodeBye(c http.Client) {
 	}
 
 	log.Printf("[Bye] said bye to %d/%d peers", actc, len(cconns))
+}
+
+func (n *Node) RecvBye(peerid string) {
+	n.RmPeer(peerid)
 }

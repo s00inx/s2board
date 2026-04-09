@@ -20,9 +20,9 @@ type Config struct {
 
 // главная абстаркция над всем сервисом, инкапсулирует логику ноды и хранилища
 type App struct {
-	curnode *network.Node
-	st      *storage.Storage
-	cfg     *Config
+	Node *network.Node
+	st   *storage.Storage
+	cfg  *Config
 }
 
 // создает экземпляр приложения и подготавливает зависимости
@@ -40,12 +40,16 @@ func (a *App) Run() {
 	}
 	a.st = st
 
-	curnode, err := network.ConnNode(filepath.Join(st.Dir, "node.key"), a.cfg.Port)
+	Node, err := network.ConnNode(filepath.Join(st.Dir, "node.key"), a.cfg.Port)
 	if err != nil {
 		log.Fatal("[FATAL] node connect error: ", err)
 	}
-	curnode.Storage = st
-	a.curnode = curnode
+	Node.Storage = st
+
+	a.Node = Node
+
+	a.Node.Storage.CleanVirtual()
+	a.Node.Storage.RepubLocal()
 
 	liface, ipstr := network.GetLocalIface()
 	if liface == nil {
@@ -53,9 +57,9 @@ func (a *App) Run() {
 	}
 	url := fmt.Sprintf("http://%s:%d", ipstr, a.cfg.Port)
 
-	go a.curnode.Discover(context.Background()) // поиск соседей
+	go a.Node.Discover(context.Background()) // поиск соседей
 
-	mdnsrv, err := network.InitMdns(liface, a.curnode.UID, a.cfg.Name, a.cfg.Port)
+	mdnsrv, err := network.InitMdns(liface, a.Node.UID, a.cfg.Name, a.cfg.Port)
 	if err != nil {
 		log.Println("[WARN] mDNS registration failed: ", err)
 	} else {
@@ -63,9 +67,9 @@ func (a *App) Run() {
 	}
 
 	fmt.Printf("\nservice is STARTED...\n")
-	fmt.Printf("node UID: %s\n", a.curnode.UID[:16])
+	fmt.Printf("node UID: %s\n", a.Node.UID[:16])
 	fmt.Printf("local UI: %s\n", url)
-	network.PrintQr(url)
+	// network.PrintQr(url)
 
 	mux := a.setupRoutes()
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", a.cfg.Port), mux))
@@ -75,10 +79,7 @@ func (a *App) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[NETWORK] new client conn: %s_%s", r.RemoteAddr, r.UserAgent())
-
-		notes, _ := a.st.GetHashesList()
-		fmt.Fprintf(w, "S2BOARD Active. Notes count: %d", len(notes))
+		http.ServeFile(w, r, "tmpstatic/index.html")
 	})
 
 	mux.HandleFunc("GET /api/list", a.listallh)
@@ -88,12 +89,13 @@ func (a *App) setupRoutes() *http.ServeMux {
 
 	mux.HandleFunc("POST /api/recv", a.recvh)
 
-	mux.HandleFunc("GET /api/hello", a.helloh)
 	mux.HandleFunc("POST /api/fetch", a.fetchh)
+
+	mux.HandleFunc("GET /api/hello", a.helloh)
 	mux.HandleFunc("GET /api/bye/{peer_id}", a.byeh)
 
-	// test handlers
-	mux.HandleFunc("POST /api/test", a.testh)
+	mux.HandleFunc("POST /api/create/", a.createh)
+	mux.HandleFunc("GET /api/getpeers/", a.getpeersh)
 
 	return mux
 }

@@ -10,6 +10,10 @@ import (
 	"github.com/skip2/go-qrcode"
 )
 
+const (
+	service_name = "_s2board._tcp"
+)
+
 // !!: mdns требует настройки avahi на линукс (ну либо можно просто sudo systemctl disable avahi-daemon.service для systemd))
 // на windows 10+ и macOS запустится нативно потому что они поддерживают эту технологию из коробки
 
@@ -25,7 +29,7 @@ func InitMdns(ip *net.Interface, uid, name string, port int) (*zeroconf.Server, 
 
 	serv, err := zeroconf.Register(
 		iname,
-		"_s2board._tcp",
+		service_name,
 		"local.",
 		port,
 		[]string{
