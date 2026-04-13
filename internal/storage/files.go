@@ -8,23 +8,31 @@ import (
 	"path/filepath"
 )
 
-func (s *Storage) fhash2dir(fhash string) string {
+const (
+	blobdirname = "blobs"
+)
+
+// file hash -> dir with file
+func (s *Storage) Fhash2dir(fhash string) string {
 	shard := fhash[:2]
-	return filepath.Join(s.Dir, "blobs", shard)
+	return filepath.Join(s.Dir, blobdirname, shard)
 }
+
+// file hash -> path to file
 func (s *Storage) Fhash2path(fhash string) string {
 	shard := fhash[:2]
-	return filepath.Join(s.Dir, "blobs", shard, fhash)
+	return filepath.Join(s.Dir, blobdirname, shard, fhash)
 }
 
 // сохранить файл по хешу (либо сделать хардлинк, либо скопировать полностью)
-func (s *Storage) saveHashed(file *os.File, src string) (string, error) {
+func (s *Storage) savetopath(file *os.File, src string) (string, error) {
 	hehash := sha256.New()
 	if _, err := io.Copy(hehash, file); err != nil {
 		return "", err
 	}
+
 	fhash := hex.EncodeToString(hehash.Sum(nil))
-	tdir := s.fhash2dir(fhash)
+	tdir := s.Fhash2dir(fhash)
 
 	os.MkdirAll(tdir, 0755)
 	tpath := filepath.Join(tdir, fhash)
@@ -49,17 +57,20 @@ func (s *Storage) saveHashed(file *os.File, src string) (string, error) {
 
 // регистрируем наш файл непосредственно открывая его на диске.
 func (s *Storage) Save2disk(src string) (string, int64, error) {
+	// открываем файл
 	file, err := os.Open(src)
 	if err != nil {
 		return "", 0, err
 	}
 	defer file.Close()
 
-	fhash, err := s.saveHashed(file, src)
+	// сохраняем физически на диск
+	fhash, err := s.savetopath(file, src)
 	if err != nil {
 		return "", 0, err
 	}
 
+	// узнаем инфо о нем, чтобы отправить данные для сохранения
 	info, err := os.Stat(src)
 	if err != nil {
 		return "", 0, err
@@ -67,7 +78,22 @@ func (s *Storage) Save2disk(src string) (string, int64, error) {
 	return fhash, info.Size(), nil
 }
 
-// удалить файл из памяти (точнее удалить линк, сам файл из памяти никуда не денется)
+// сохранить скачанный файл на диск
+func (s *Storage) SaveBlob(fhash string, r io.Reader) error {
+	tpath := s.Fhash2path(fhash)
+	os.MkdirAll(filepath.Dir(tpath), 0755)
+
+	f, err := os.Create(tpath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, r)
+	return err
+}
+
+// удалить файл из локальной памяти программы
 func (s *Storage) Delfile(fhash string) error {
 	target := s.Fhash2path(fhash)
 
@@ -82,23 +108,8 @@ func (s *Storage) Delfile(fhash string) error {
 	return nil
 }
 
-// проверить наличие файла по его хешу
+// проверить наличие файла в локальном хранилище программы по его хешу
 func (s *Storage) FileExists(fhash string) bool {
 	_, err := os.Stat(s.Fhash2path(fhash))
 	return err == nil
-}
-
-// сохранить скачанный файл прям на диск
-func (s *Storage) SaveBlob(fhash string, r io.Reader) error {
-	tpath := s.Fhash2path(fhash)
-	os.MkdirAll(filepath.Dir(tpath), 0755)
-
-	f, err := os.Create(tpath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	_, err = io.Copy(f, r)
-	return err
 }

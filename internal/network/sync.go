@@ -25,7 +25,7 @@ func (n *Node) FetchManifests(hashes []string) ([]models.Manifest, error) {
 	}
 
 	for _, h := range hashes {
-		man, err := n.Storage.Getmanh(h, "virtual")
+		man, err := n.Storage.Getmanh(h, models.Bucketvirtual)
 		if err == nil && man != nil {
 			res = append(res, *man)
 		}
@@ -91,11 +91,11 @@ func (n *Node) Syncw(p models.Peer) error {
 			err := n.DlBlob(p, man.FileHash)
 			if err != nil {
 				log.Printf("[ERR] failed to download blob %s: %v", man.FileHash[:8], err)
-				err = n.Storage.Save2db(man, "local")
+				err = n.Storage.Save2db(man, models.Bucketlocal)
 			}
 		}
 
-		err = n.Storage.Save2db(man, "virtual")
+		err = n.Storage.Save2db(man, models.Bucketvirtual)
 		if err == nil {
 			log.Printf("[SYNC] added new note: %s", man.Title)
 		}

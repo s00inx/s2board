@@ -144,12 +144,12 @@ func (n *Node) Uploadf(src, title, desc, authorname string) (*models.Manifest, e
 	man.Hash = hex.EncodeToString(man.CalcID())
 
 	// сохраняем в бд потому что он лежит на диске
-	if err = n.Storage.Save2db(*man, "local"); err != nil {
+	if err = n.Storage.Save2db(*man, models.Bucketlocal); err != nil {
 		return nil, fmt.Errorf("db err: %w", err)
 	}
 
 	// свои посты тоже должны быть в ленте
-	if err = n.Storage.Save2db(*man, "virtual"); err != nil {
+	if err = n.Storage.Save2db(*man, models.Bucketvirtual); err != nil {
 		log.Printf("failed to sync self to virtual: %v", err)
 	}
 
@@ -163,20 +163,20 @@ func (n *Node) Recvf(p models.Peer, man *models.Manifest) error {
 
 	// 2: в ЛЮБОМ случае сохраняем в virtual \
 	// если такой манифест уже был, он просто обновится (например, список пиров расширится)
-	if err := n.Storage.Save2db(*man, "virtual"); err != nil {
+	if err := n.Storage.Save2db(*man, models.Bucketvirtual); err != nil {
 		log.Printf("[DB] failed to save to virtual: %v", err)
 	}
 
 	// 3. если файл уже есть на диске, пометим его и в local
 	if n.Storage.FileExists(man.FileHash) {
-		return n.Storage.Save2db(*man, "local")
+		return n.Storage.Save2db(*man, models.Bucketlocal)
 	}
 
 	if man.Size <= mindlsize {
 		go func() {
 			err := n.DlBlob(p, man.FileHash)
 			if err == nil {
-				n.Storage.Save2db(*man, "local")
+				n.Storage.Save2db(*man, models.Bucketlocal)
 				log.Printf("[AUTO-DL] success: %s", man.FileHash[:8])
 			}
 		}()
@@ -281,12 +281,12 @@ func (n *Node) DlBlob(p models.Peer, fhash string) error {
 
 // удаляем заметку с доски и из памяти
 func (n *Node) RmNote(hash string) error {
-	fhash, err := n.Storage.Delman(hash, "local")
+	fhash, err := n.Storage.Delman(hash, models.Bucketlocal)
 	if err != nil {
 		return fmt.Errorf("")
 	}
 
-	if _, err := n.Storage.Delman(hash, "virtual"); err != nil {
+	if _, err := n.Storage.Delman(hash, models.Bucketvirtual); err != nil {
 		return fmt.Errorf("")
 	}
 

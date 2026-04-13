@@ -71,7 +71,7 @@ func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.Close()
 
-	man, _ := a.Node.Storage.Getmanfh(hval, "virtual")
+	man, _ := a.Node.Storage.Getmanfh(hval, models.Bucketvirtual)
 	if man != nil {
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+url.PathEscape(man.Title)+"\"")
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", man.Size))
@@ -207,7 +207,7 @@ func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	man, err := a.Node.Storage.Getmanh(req.Mhash, "virtual")
+	man, err := a.Node.Storage.Getmanh(req.Mhash, models.Bucketvirtual)
 	if err != nil || man == nil {
 		http.Error(w, "manifest not found", http.StatusNotFound)
 		return

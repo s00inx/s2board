@@ -21,7 +21,7 @@ import (
 // local (когда сохраняем 100% на диске)
 // virtual (все манифесты сюда)
 func (s *Storage) Save2db(man models.Manifest, bucket string) error {
-	if bucket != localbucket && bucket != virtbucket {
+	if bucket != models.Bucketlocal && bucket != models.Bucketvirtual {
 		return errors.New("[DB] invalid bucket")
 	}
 
@@ -39,7 +39,7 @@ func (s *Storage) Save2db(man models.Manifest, bucket string) error {
 		}
 
 		if man.FileHash != "" {
-			b = tx.Bucket([]byte(fibucket))
+			b = tx.Bucket([]byte(models.Bucketfi))
 			return b.Put([]byte(man.FileHash), []byte(man.Hash))
 		}
 
@@ -73,7 +73,7 @@ func (s *Storage) Getmanfh(fhash string, bucket string) (*models.Manifest, error
 	var m models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		fb := tx.Bucket([]byte(fibucket))
+		fb := tx.Bucket([]byte(models.Bucketfi))
 		if fb == nil {
 			return errors.New("[DB] no file index")
 		}
@@ -122,8 +122,8 @@ func (s *Storage) Delman(hash string, bucket string) (string, error) {
 		}
 
 		// чистим и индекс
-		if bucket == "local" {
-			if i := tx.Bucket([]byte("file_index")); i != nil {
+		if bucket == models.Bucketlocal {
+			if i := tx.Bucket([]byte(models.Bucketfi)); i != nil {
 				i.Delete([]byte(fh))
 			}
 		}
@@ -140,7 +140,7 @@ func (s *Storage) GetHashesList() ([]string, error) {
 	var hashes []string
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(localbucket))
+		b := tx.Bucket([]byte(models.Bucketlocal))
 		if b == nil {
 			return nil
 		}
@@ -163,7 +163,7 @@ func (s *Storage) HasNote(hash string) bool {
 	var exists bool
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(localbucket))
+		b := tx.Bucket([]byte(models.Bucketlocal))
 		if b == nil {
 			return nil
 		}
@@ -187,7 +187,7 @@ func (s *Storage) GetManlist() []models.Manifest {
 	var manlist []models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(virtbucket))
+		b := tx.Bucket([]byte(models.Bucketvirtual))
 		if b == nil {
 			return nil
 		}
@@ -215,12 +215,12 @@ func (s *Storage) GetManlist() []models.Manifest {
 // очистить виртуальную доску
 func (s *Storage) CleanVirtual() error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
-		err := tx.DeleteBucket([]byte(virtbucket))
+		err := tx.DeleteBucket([]byte(models.Bucketvirtual))
 		if err != nil {
 			return fmt.Errorf("[DB] failed to delete virtual bucket: %v", err)
 		}
 
-		_, err = tx.CreateBucket([]byte(virtbucket))
+		_, err = tx.CreateBucket([]byte(models.Bucketvirtual))
 		if err != nil {
 			return fmt.Errorf("[DB] failed to recreate virtual bucket: %v", err)
 		}
@@ -232,12 +232,12 @@ func (s *Storage) CleanVirtual() error {
 
 func (s *Storage) RepubLocal() error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
-		local := tx.Bucket([]byte(localbucket))
+		local := tx.Bucket([]byte(models.Bucketlocal))
 		if local == nil {
 			return nil
 		}
 
-		virtual, err := tx.CreateBucketIfNotExists([]byte(virtbucket))
+		virtual, err := tx.CreateBucketIfNotExists([]byte(models.Bucketvirtual))
 		if err != nil {
 			return err
 		}

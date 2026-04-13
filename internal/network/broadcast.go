@@ -13,7 +13,7 @@ import (
 // раздать файл всем кто находится в одной локальной сети
 // action - сохранение ('s') или удаление ('d')
 func (n *Node) Broadcast(man *models.Manifest, action byte) {
-	if action != 'd' && action != 's' {
+	if action != models.BroadcastSave && action != models.BroadcastDel {
 		log.Printf("[BROADCAST] invalid action -> skipped")
 		return
 	}
@@ -40,7 +40,7 @@ func (n *Node) Broadcast(man *models.Manifest, action byte) {
 	for _, p := range ps {
 		go func(peer models.Peer) {
 			var durl string
-			if action == 's' {
+			if action == models.BroadcastSave {
 				durl = fmt.Sprintf("http://%s:%d/api/recv", peer.IP, peer.Port)
 			} else {
 				durl = fmt.Sprintf("http://%s:%d/api/del", peer.IP, peer.Port)
@@ -51,6 +51,7 @@ func (n *Node) Broadcast(man *models.Manifest, action byte) {
 				log.Printf("[BROADCAST] failed to send to %s: %v", peer.UID[:8], err)
 				return
 			}
+
 			defer resp.Body.Close()
 
 			if resp.StatusCode == http.StatusOK {

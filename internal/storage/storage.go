@@ -4,15 +4,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/s00inx/s2board/internal/models"
 	"go.etcd.io/bbolt"
 )
 
 const (
 	dbname = "s2.db"
-
-	localbucket = "local"
-	virtbucket  = "virtual"
-	fibucket    = "file_index"
 )
 
 // Storage должен удовлетворять интерфейсу nodeStorage из network
@@ -33,17 +30,17 @@ func Init(dir string) (*Storage, error) {
 
 	// создаем бакет для манифестов файлов которые уже есть на диске (хеш манифеста : манифест)
 	err = db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(localbucket))
+		_, err := tx.CreateBucketIfNotExists([]byte(models.Bucketlocal))
 		if err != nil {
 			return err
 		}
 
-		_, err = tx.CreateBucketIfNotExists([]byte("file_index"))
+		_, err = tx.CreateBucketIfNotExists([]byte(models.Bucketvirtual))
 		if err != nil {
 			return err
 		}
 
-		_, err = tx.CreateBucketIfNotExists([]byte(virtbucket))
+		_, err = tx.CreateBucketIfNotExists([]byte(models.Bucketfi))
 		return err
 	})
 
