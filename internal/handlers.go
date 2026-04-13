@@ -74,7 +74,7 @@ func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
 	man, _ := a.Node.Storage.Getmanfh(hval, models.Bucketvirtual)
 	if man != nil {
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+url.PathEscape(man.Title)+"\"")
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", man.Size))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", man.FileSize))
 	} else {
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+hval+"\"")
 	}
@@ -130,7 +130,6 @@ func (a *App) recvh(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/create : создать новую заметку (multipart form)
-// POST /api/create : создать новую заметку (multipart form)
 func (a *App) createh(w http.ResponseWriter, r *http.Request) {
 	// 1. Парсим форму
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
@@ -167,9 +166,9 @@ func (a *App) createh(w http.ResponseWriter, r *http.Request) {
 		out.Close()
 		defer os.Remove(tempPath)
 
-		man, err = a.Node.Uploadf(tempPath, title, desc, author)
+		man, err = a.Node.Uploadf(tempPath, title, desc)
 	case http.ErrMissingFile:
-		man, err = a.Node.Uploadf("", title, desc, author)
+		man, err = a.Node.Uploadf("", title, desc)
 	default:
 		http.Error(w, "bad file", http.StatusBadRequest)
 		return
@@ -198,7 +197,8 @@ func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
 // POST /api/del : удалить манифест у себя и разослать всем
 func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Mhash string `json:"hash"`
+		Mhash      string `json:"hash"`
+		AuthorHash string `json:"author"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -212,6 +212,12 @@ func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "manifest not found", http.StatusNotFound)
 		return
 	}
+
+	if req.AuthorHash != man.AuthorUID {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	go a.Node.Broadcast(man, 'd')
 
 	err = a.Node.RmNote(req.Mhash)
@@ -220,4 +226,11 @@ func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+}
+
+// GET /api/me
+func (a *App) meh(w http.ResponseWriter, r *http.Request) {
+	json.NewEncoder(w).Encode(map[string]string{
+		"uid": a.Node.UID,
+	})
 }

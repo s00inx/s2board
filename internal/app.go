@@ -40,7 +40,7 @@ func (a *App) Run() {
 	}
 	a.st = st
 
-	Node, err := network.ConnNode(filepath.Join(st.Dir, "node.key"), a.cfg.Port)
+	Node, err := network.ConnNode(filepath.Join(st.Dir, "node.key"), a.cfg.Port, a.cfg.Name)
 	if err != nil {
 		log.Fatal("[FATAL] node connect error: ", err)
 	}
@@ -59,7 +59,7 @@ func (a *App) Run() {
 
 	go a.Node.Discover(context.Background()) // поиск соседей
 
-	mdnsrv, err := network.InitMdns(liface, a.Node.UID, a.cfg.Name, a.cfg.Port)
+	nm, mdnsrv, err := network.InitMdns(liface, a.Node.UID, a.cfg.Name, a.cfg.Port)
 	if err != nil {
 		log.Println("[WARN] mDNS registration failed: ", err)
 	} else {
@@ -69,7 +69,7 @@ func (a *App) Run() {
 	fmt.Printf("\nservice is STARTED...\n")
 	fmt.Printf("node UID: %s\n", a.Node.UID[:16])
 	fmt.Printf("local UI: %s\n", url)
-	// network.PrintQr(url)
+	fmt.Printf("local IP: %s:%d\n", nm, a.cfg.Port)
 
 	mux := a.setupRoutes()
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", a.cfg.Port), mux))
@@ -82,22 +82,26 @@ func (a *App) setupRoutes() *http.ServeMux {
 		http.ServeFile(w, r, "tmpstatic/index.html")
 	})
 
+	// main page
 	mux.HandleFunc("GET /api/list", a.listallh)
 
+	// downloading files
 	mux.HandleFunc("GET /api/dl/{hash}", a.dlh)
 	mux.HandleFunc("GET /api/hasf/{hash}", a.hasfh)
 
+	// sync and sending
 	mux.HandleFunc("POST /api/recv", a.recvh)
-
 	mux.HandleFunc("POST /api/fetch", a.fetchh)
-
 	mux.HandleFunc("GET /api/hello", a.helloh)
 	mux.HandleFunc("GET /api/bye/{peer_id}", a.byeh)
 
+	// posting files
 	mux.HandleFunc("POST /api/create", a.createh)
 	mux.HandleFunc("POST /api/del", a.delh)
 
+	// etc ..
 	mux.HandleFunc("GET /api/getpeers", a.getpeersh)
+	mux.HandleFunc("GET /api/me", a.meh)
 
 	return mux
 }

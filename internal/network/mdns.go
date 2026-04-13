@@ -7,21 +7,15 @@ import (
 	"os"
 
 	"github.com/grandcat/zeroconf"
-	"github.com/skip2/go-qrcode"
-)
-
-const (
-	service_name = "_s2board._tcp"
+	"github.com/s00inx/s2board/internal/models"
 )
 
 // !!: mdns требует настройки avahi на линукс (ну либо можно просто sudo systemctl disable avahi-daemon.service для systemd))
 // на windows 10+ и macOS запустится нативно потому что они поддерживают эту технологию из коробки
 
-// инициализируем zeroconf-сервис и передаем туда наш найденный сетевой интерфейс
-// и uid для идентификации ноды
-func InitMdns(ip *net.Interface, uid, name string, port int) (*zeroconf.Server, error) {
+func InitMdns(ip *net.Interface, uid, name string, port int) (string, *zeroconf.Server, error) {
 	if ip == nil {
-		return nil, fmt.Errorf("can't find any valid net interface, please connect to hotspot")
+		return "", nil, fmt.Errorf("can't find any valid net interface, please connect to hotspot")
 	}
 
 	hostname, _ := os.Hostname()
@@ -29,7 +23,7 @@ func InitMdns(ip *net.Interface, uid, name string, port int) (*zeroconf.Server, 
 
 	serv, err := zeroconf.Register(
 		iname,
-		service_name,
+		models.ServiceName,
 		"local.",
 		port,
 		[]string{
@@ -40,23 +34,20 @@ func InitMdns(ip *net.Interface, uid, name string, port int) (*zeroconf.Server, 
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("mdns error: %w", err)
+		return "", nil, fmt.Errorf("mdns error: %w", err)
 	}
 
-	return serv, err
+	return iname, serv, err
 }
 
-// найти сетевой интерфейс для айпи который смотрит в локальную сеть
 func GetLocalIface() (*net.Interface, string) {
-	// все сетевые интерфейсы приклепленные к сетевой карте
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return nil, ""
 	}
 
-	// перебираем интерфейсы
 	for _, ie := range ifaces {
-		addrs, _ := ie.Addrs() // адреса интерфейса
+		addrs, _ := ie.Addrs()
 
 		for _, a := range addrs {
 			if ie.Flags&net.FlagUp == 0 || ie.Flags&net.FlagLoopback != 0 {
@@ -69,18 +60,6 @@ func GetLocalIface() (*net.Interface, string) {
 			}
 		}
 	}
-
-	// в худшем случае вернем нил в качестве интерфейса (потому что не нашли) и локалхост
+	// ??: maybe panic here
 	return nil, "127.0.0.1"
-}
-
-// печатает qr на осноснвой адрес (100% надежность прям в консоль)
-func PrintQr(url string) error {
-	q, err := qrcode.New(url, qrcode.Medium)
-	if err != nil {
-		return err
-	}
-
-	fmt.Println(q.ToSmallString(false))
-	return nil
 }

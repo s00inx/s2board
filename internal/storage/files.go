@@ -24,7 +24,7 @@ func (s *Storage) Fhash2path(fhash string) string {
 	return filepath.Join(s.Dir, blobdirname, shard, fhash)
 }
 
-// сохранить файл по хешу (либо сделать хардлинк, либо скопировать полностью)
+// save file to hashed path (hard link or copy)
 func (s *Storage) savetopath(file *os.File, src string) (string, error) {
 	hehash := sha256.New()
 	if _, err := io.Copy(hehash, file); err != nil {
@@ -38,8 +38,8 @@ func (s *Storage) savetopath(file *os.File, src string) (string, error) {
 	tpath := filepath.Join(tdir, fhash)
 	err := os.Link(src, tpath)
 
-	// ошибка тут если бинарник и файл на разных дисках, все равно придется копировать фвйл на диск с бинарником
-	// если они на одном диске, сработает хардлинк
+	// error here only if files and exec file on different disks
+	// so we have fallback - file will copy to this dir
 	if err != nil {
 		dstf, err := os.Create(tpath)
 		if err != nil {
@@ -78,7 +78,7 @@ func (s *Storage) Save2disk(src string) (string, int64, error) {
 	return fhash, info.Size(), nil
 }
 
-// сохранить скачанный файл на диск
+// download local file
 func (s *Storage) SaveBlob(fhash string, r io.Reader) error {
 	tpath := s.Fhash2path(fhash)
 	os.MkdirAll(filepath.Dir(tpath), 0755)

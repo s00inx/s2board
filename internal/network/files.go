@@ -18,8 +18,6 @@ const (
 	mindlsize = 25 * 1 << 20
 )
 
-// мапа пиров которые раздают конкретный файл (если его нет у ноды)
-// map[хкш файла]список_id_пиров (сделано потому что мы имеем дело с реальными файлами на диске, так зачем давать к ним лоступ по айди манифеста?)
 type fpeermap struct {
 	mu sync.Mutex
 	d  map[string][]string
@@ -31,7 +29,6 @@ func newfilepeermap() *fpeermap {
 	}
 }
 
-// добавить пир и хеш файла, который он раздает в мапу (для этого лочично нужен манифест и сам пир)
 func (fm *fpeermap) add(hash string, peer models.Peer) {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
@@ -45,7 +42,6 @@ func (fm *fpeermap) add(hash string, peer models.Peer) {
 	fm.d[hash] = append(fm.d[hash], peer.UID)
 }
 
-// удалить конкретный пир из всех списков (в том случае если он не активен)
 func (fm *fpeermap) rmpeer(peerid string) {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
@@ -65,15 +61,6 @@ func (fm *fpeermap) rmpeer(peerid string) {
 	}
 }
 
-// удалить манифест из карты пиров вместе со всеми пирами (в случае если из сети исчез сам манифест)
-func (fm *fpeermap) rmman(hash string) {
-	fm.mu.Lock()
-	defer fm.mu.Unlock()
-
-	delete(fm.d, hash)
-}
-
-// посмотреть значение по ключу (и есть ли оно вообще) потокобезопасно
 func (fm *fpeermap) getpeerlist(hash string) ([]string, bool) {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
@@ -114,7 +101,7 @@ type nodeStorage interface {
 
 // загрузить файл на доску из локального хранилища
 // сырые данные -> сохранение на диск -> подписываем -> сохранение в бд -> готовый manifest
-func (n *Node) Uploadf(src, title, desc, authorname string) (*models.Manifest, error) {
+func (n *Node) Uploadf(src, title, desc string) (*models.Manifest, error) {
 	// сохраняем файл физически на диск
 	var fhash string
 	var fsize int64
@@ -129,13 +116,13 @@ func (n *Node) Uploadf(src, title, desc, authorname string) (*models.Manifest, e
 
 	man := models.NewMan(
 		title,
-		filepath.Base(src),
 		desc,
+		n.UID,
+		n.PubName,
 		fhash,
+		filepath.Base(src),
 		fsize,
 	)
-	man.AuthorUID = n.UID
-	man.AuthorName = authorname
 
 	if err := man.Sign(n.PrivateK); err != nil {
 		return nil, fmt.Errorf("failed to sign manifest: %w", err)
@@ -143,52 +130,52 @@ func (n *Node) Uploadf(src, title, desc, authorname string) (*models.Manifest, e
 
 	man.Hash = hex.EncodeToString(man.CalcID())
 
-	// сохраняем в бд потому что он лежит на диске
-	if err = n.Storage.Save2db(*man, models.Bucketlocal); err != nil {
-		return nil, fmt.Errorf("db err: %w", err)
-	}
-
-	// свои посты тоже должны быть в ленте
 	if err = n.Storage.Save2db(*man, models.Bucketvirtual); err != nil {
 		log.Printf("failed to sync self to virtual: %v", err)
 	}
 
+	// save to db bc we saved it to disk
+	if err = n.Storage.Save2db(*man, models.Bucketlocal); err != nil {
+		return nil, fmt.Errorf("db err: %w", err)
+	}
 	return man, nil
 }
 
-// получить файл -> обработать по логике
+// receive file from net -> process
 func (n *Node) Recvf(p models.Peer, man *models.Manifest) error {
-	// 1: в карту пиров (теперь мы знаем, у кого просить)
+	// 1: to file peers map
 	n.fpeers.add(man.FileHash, p)
 
-	// 2: в ЛЮБОМ случае сохраняем в virtual \
-	// если такой манифест уже был, он просто обновится (например, список пиров расширится)
+	// 2: save to 'virtual' bucket ANYWAY \
+	// if file is already exists, data will update.
 	if err := n.Storage.Save2db(*man, models.Bucketvirtual); err != nil {
-		log.Printf("[DB] failed to save to virtual: %v", err)
+		log.Printf("[db] failed to save to virtual: %v", err)
 	}
 
-	// 3. если файл уже есть на диске, пометим его и в local
-	if n.Storage.FileExists(man.FileHash) {
+	// 3. file was flushed to disk -> save that to local
+	if man.FileSize > 0 && n.Storage.FileExists(man.FileHash) {
 		return n.Storage.Save2db(*man, models.Bucketlocal)
 	}
 
-	if man.Size <= mindlsize {
+	// 4. auto-download blobs under max size limit
+	if man.FileSize <= mindlsize {
 		go func() {
-			err := n.DlBlob(p, man.FileHash)
+			err := n.DlFile(p, man.FileHash)
 			if err == nil {
 				n.Storage.Save2db(*man, models.Bucketlocal)
-				log.Printf("[AUTO-DL] success: %s", man.FileHash[:8])
+				log.Printf("[download] success: %s", man.FileHash[:8])
 			}
 		}()
 	}
 
+	// 5. ask peers for file availability -> add them to fpeermap
 	go n.askpeers(man.FileHash)
 
 	return nil
 }
 
-// когда файл приходит на ноду, она составляет полную карту пиров, спрашивает всех пиров в сети, есть ли у них этот файл.
-// это нужно для отказоустойчивости (и чтобы сделать загрузку чанками в будущем:))
+// ask all available peers about file
+// (special endpoint for scalability)
 func (n *Node) askpeers(fhash string) {
 	n.peermap.mu.Lock()
 	peers := n.peermap.d
@@ -200,7 +187,7 @@ func (n *Node) askpeers(fhash string) {
 			resp, err := n.client.Get(url)
 			if err == nil && resp.StatusCode == http.StatusOK {
 				n.fpeers.add(fhash, p)
-				log.Printf("[FOUND] File %s also available on %s", fhash[:8], p.IP)
+				log.Printf("[found] file %s also available on %s", fhash[:8], p.IP)
 			}
 			if resp != nil {
 				resp.Body.Close()
@@ -209,9 +196,7 @@ func (n *Node) askpeers(fhash string) {
 	}
 }
 
-// скачать файл у пира по его хешу (в несколько этапов)
-// активируется при вызове хендлера скачивания (/api/dl) \ принять хеш -> выдать ридер с самим файлом
-// (файл если он физически на ноде, либо потом если текущая нода выступает как прокси)
+// donload file from peer with file hash
 func (n *Node) Dlf(fhash string) (io.ReadCloser, error) {
 	// 1: ищем локально через Storage
 	if n.Storage.FileExists(fhash) {
@@ -234,8 +219,8 @@ func (n *Node) Dlf(fhash string) (io.ReadCloser, error) {
 
 		resp, err := n.client.Get(dsturlp)
 		if err != nil {
-			log.Printf("[PROXY] peer %s error: %v", fpeerid[:8], err)
-			n.RmPeer(fpeerid)
+			log.Printf("[proxy] peer %s error: %v", fpeerid[:8], err)
+			n.Forget(fpeerid)
 			continue
 		}
 
@@ -249,8 +234,7 @@ func (n *Node) Dlf(fhash string) (io.ReadCloser, error) {
 	return nil, fmt.Errorf("failed to retrieve file from %d peers", len(hostl))
 }
 
-// скачать файл у конкретного пира (и все, дальнейшим уже занимаются другие функции)
-func (n *Node) DlBlob(p models.Peer, fhash string) error {
+func (n *Node) DlFile(p models.Peer, fhash string) error {
 	dsturl := fmt.Sprintf("http://%s:%d/api/dl/%s", p.IP, p.Port, fhash)
 
 	resp, err := n.client.Get(dsturl)
@@ -260,7 +244,7 @@ func (n *Node) DlBlob(p models.Peer, fhash string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("peer returned status: %d", resp.StatusCode)
+		return fmt.Errorf("[dl file] peer returned status: %d", resp.StatusCode)
 	}
 
 	h := sha256.New()
@@ -273,13 +257,12 @@ func (n *Node) DlBlob(p models.Peer, fhash string) error {
 	realhash := hex.EncodeToString(h.Sum(nil))
 	if fhash != realhash {
 		n.Storage.Delfile(fhash)
-		return fmt.Errorf("hash mismatch: expected %s, got %s", fhash[:8], realhash[:8])
+		return fmt.Errorf("[dl file] hash mismatch: expected %s, got %s", fhash[:8], realhash[:8])
 	}
 
 	return nil
 }
 
-// удаляем заметку с доски и из памяти
 func (n *Node) RmNote(hash string) error {
 	fhash, err := n.Storage.Delman(hash, models.Bucketlocal)
 	if err != nil {

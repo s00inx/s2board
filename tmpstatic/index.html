@@ -9,7 +9,7 @@
             background: #fff; color: #000; line-height: 1.4; 
         }
         h1, h2, h3 { text-transform: uppercase; border-bottom: 1px solid #000; padding-bottom: 5px; }
-        .card { border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; background: #fff; }
+        .card { border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; background: #fff; position: relative; }
         .gray { background: #f5f5f5; border: 1px solid #ddd; }
         
         #peers-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; }
@@ -28,13 +28,17 @@
         button:hover { background: #fff; color: #000; }
         button:disabled { background: #ccc; border-color: #ccc; cursor: not-allowed; }
         
-        .btn-del { background: #fff; color: #000; border: 1px solid #ccc; width: auto; padding: 5px 10px; margin-top: 10px; }
-        .btn-del:hover { border-color: #000; }
+        .btn-del { 
+            background: #fff; color: #000; border: 1px solid #ccc; width: auto; 
+            padding: 3px 8px; font-size: 10px; margin-top: 10px; cursor: pointer;
+        }
+        .btn-del:hover { border-color: #000; background: #000; color: #fff; }
 
         .meta { font-size: 11px; color: #666; margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 10px; }
         #feed { margin-top: 20px; }
         a { color: #000; text-decoration: underline; font-weight: bold; }
         .no-file { color: #999; font-size: 11px; text-transform: uppercase; }
+        .author-badge { font-size: 9px; background: #000; color: #fff; padding: 2px 4px; text-transform: uppercase; margin-left: 5px; }
     </style>
 </head>
 <body>
@@ -52,7 +56,7 @@
         <div class="form-group"><input type="text" id="title" placeholder="заголовок записи" required></div>
         <div class="form-group"><textarea id="desc" placeholder="описание файла или заметка..." rows="3"></textarea></div>
         <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
-            <input type="text" id="author" placeholder="погоняло (по умолчанию - имя ноды)" style="flex: 1;">
+            <input type="text" id="author-name" placeholder="погоняло (по умолчанию - имя ноды)" style="flex: 1;">
             <input type="file" id="file" style="flex: 1;">
         </div>
         <button type="submit" id="submitBtn">Черкануть!</button>
@@ -63,6 +67,20 @@
 <div id="feed"></div>
 
 <script>
+    let myUID = ""; // Сюда сохраним ID нашей ноды
+
+    // Узнаем свой UID у бэкенда
+    async function getMe() {
+        try {
+            const r = await fetch('/api/me');
+            const data = await r.json();
+            myUID = data.uid;
+            console.log("Мой UID:", myUID);
+        } catch (e) {
+            console.error("Не удалось получить свой UID");
+        }
+    }
+
     async function loadPeers() {
         try {
             const r = await fetch('/api/getpeers');
@@ -86,14 +104,15 @@
     }
 
     async function deletePost(hash) {
-        if (!confirm("Удалить?")) return;
+        if (!confirm("Удалить запись из сети?")) return;
         try {
             const r = await fetch('/api/del', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ hash: hash })
+                body: JSON.stringify({ hash: hash, author: getMe() })
             });
             if (r.ok) loadFeed();
+            else alert("Ошибка: возможно, вы не автор этой записи.");
         } catch (e) { console.error("Ошибка удаления"); }
     }
 
@@ -108,7 +127,11 @@
                 return;
             }
 
-            el.innerHTML = data.reverse().map(m => `
+            el.innerHTML = data.reverse().map(m => {
+                // Проверяем авторство
+                const isAuthor = (m.author === myUID);
+
+                return `
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                         <b style="font-size: 1.2rem;">${m.title}</b>
@@ -116,12 +139,14 @@
                     </div>
                     <p style="white-space: pre-wrap;">${m.desc || ''}</p>
                     <div class="meta">
-                        ОТ: ${m.author_name || 'Аноним'} ${m.size > 0 ? `| РАЗМЕР: ${(m.size / 1024).toFixed(1)} KB` : ''}<br>
+                        ОТ: ${m.author_name || 'Аноним'} ${isAuthor ? '<span class="author-badge">Вы</span>' : ''} 
+                        ${m.size > 0 ? `| РАЗМЕР: ${(m.size / 1024).toFixed(1)} KB` : ''}<br>
                         HASH: ${m.hash.substring(0,16)}
                     </div>
-                    <button class="btn-del" onclick="deletePost('${m.hash}')">Удалить</button>
+                    ${isAuthor ? `<button class="btn-del" onclick="deletePost('${m.hash}')">Удалить</button>` : ''}
                 </div>
-            `).join('');
+                `;
+            }).join('');
         } catch (e) {
             document.getElementById('feed').innerHTML = "Ошибка загрузки ленты.";
         }
@@ -141,7 +166,7 @@
         
         fd.append('title', document.getElementById('title').value);
         fd.append('desc', document.getElementById('desc').value);
-        fd.append('author', document.getElementById('author').value);
+        fd.append('author', document.getElementById('author-name').value);
 
         try {
             const r = await fetch('/api/create', { method: 'POST', body: fd });
@@ -156,10 +181,17 @@
         }
     };
 
-    loadPeers();
-    loadFeed();
-    setInterval(loadPeers, 5000);
-    setInterval(loadFeed, 10000);
+    // Инициализация
+    async function start() {
+        await getMe();    // Сначала узнаем свой ID
+        loadPeers();      // Потом грузим список пиров
+        loadFeed();       // И ленту
+        
+        setInterval(loadPeers, 5000);
+        setInterval(loadFeed, 10000);
+    }
+
+    start();
 </script>
 </body>
 </html>

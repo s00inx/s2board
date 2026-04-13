@@ -13,3 +13,7 @@ const (
 	BroadcastSave = 's'
 	BroadcastDel  = 'd'
 )
+
+const (
+	ServiceName = "_s2board._tcp"
+)

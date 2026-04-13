@@ -1,4 +1,3 @@
-// центральный узел сети
 package network
 
 import (
@@ -10,29 +9,23 @@ import (
 	"os"
 )
 
-// структура для именно этого устройства в сети
+// node is abstrcation above THIS exact device in the network
 type Node struct {
-	// ключи
 	PublicK  ed25519.PublicKey
 	PrivateK ed25519.PrivateKey
-	UID      string // строковое представление публичного ключа
+	UID      string
 
-	IP   string
-	Port int
-
-	// мапа пиров (активных участников сети)
-	peermap peermap
-	// мапа файлов, которых нету у ноды (хешфайла - список пиров)
-	fpeers fpeermap
-
-	// интерфейс для работы с памятью конкретной ноды
+	IP      string
+	Port    int
+	PubName string
 	Storage nodeStorage
-	// общий клиент
-	client http.Client
+	client  http.Client
+
+	peermap peermap
+	fpeers  fpeermap
 }
 
-// функция которая вызывается при подключении ноды к локальной сети
-func ConnNode(prkpath string, port int) (*Node, error) {
+func ConnNode(prkpath string, port int, name string) (*Node, error) {
 	_, err := os.Stat(prkpath)
 
 	var (
@@ -43,7 +36,7 @@ func ConnNode(prkpath string, port int) (*Node, error) {
 	if err == nil {
 		f, err := os.ReadFile(prkpath)
 		if err != nil {
-			log.Printf("[NODE] error configuring node")
+			log.Printf("[init] error configuring node")
 			return nil, err
 		}
 
@@ -61,18 +54,19 @@ func ConnNode(prkpath string, port int) (*Node, error) {
 		}
 	}
 
+	log.Printf("[init] node connected")
 	return &Node{
 		PublicK:  pub,
 		PrivateK: priv,
 		UID:      hex.EncodeToString(pub),
 		Port:     port,
+		PubName:  name,
 		peermap:  *newpeermap(),
 		fpeers:   *newfilepeermap(),
 	}, nil
 }
 
-// забыть о конкретном пире (когда тот вышел из сети)
-func (n *Node) RmPeer(peeruid string) {
+func (n *Node) Forget(peeruid string) {
 	n.fpeers.rmpeer(peeruid)
 	n.peermap.rm(peeruid)
 }

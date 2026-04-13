@@ -10,18 +10,17 @@ import (
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// раздать файл всем кто находится в одной локальной сети
-// action - сохранение ('s') или удаление ('d')
+// broadcast message to all peers in local network
 func (n *Node) Broadcast(man *models.Manifest, action byte) {
 	if action != models.BroadcastSave && action != models.BroadcastDel {
-		log.Printf("[BROADCAST] invalid action -> skipped")
+		log.Printf("[broadcast] invalid action -> skipped")
 		return
 	}
 
 	ps := n.GetConns()
 
 	if len(ps) == 0 {
-		log.Println("[BROADCAST] no peers found to broadcast.")
+		log.Println("[broadcast] no peers -> ok")
 		return
 	}
 
@@ -32,11 +31,12 @@ func (n *Node) Broadcast(man *models.Manifest, action byte) {
 	jsond, err := json.Marshal(payload)
 
 	if err != nil {
-		log.Printf("[BROADCAST] marshal error: %v", err)
+		log.Printf("[broadcast] marshal error: %v -> ignored", err)
 		return
 	}
 
-	log.Printf("[BROADCAST] sending update to %d peers...\n", len(ps))
+	log.Printf("[broadcast] found %d peers -> sending", len(ps))
+	dcnt := 0
 	for _, p := range ps {
 		go func(peer models.Peer) {
 			var durl string
@@ -48,23 +48,26 @@ func (n *Node) Broadcast(man *models.Manifest, action byte) {
 
 			resp, err := n.client.Post(durl, "application/json", bytes.NewBuffer(jsond))
 			if err != nil {
-				log.Printf("[BROADCAST] failed to send to %s: %v", peer.UID[:8], err)
+				log.Printf("[broadcast] faild to send to %s: %v -> ignored", peer.UID[:8], err)
 				return
 			}
 
 			defer resp.Body.Close()
 
 			if resp.StatusCode == http.StatusOK {
-				log.Printf("[BROADCAST] delivered to %s", peer.UID[:8])
+				log.Printf("[broadcast] ok -> delivered to %s", peer.UID[:8])
+				dcnt++
+			} else {
+				log.Printf("[broadcast] code %d for peer %s", resp.StatusCode, peer.UID[:8])
 			}
 		}(p)
 	}
+
+	log.Printf("[broadcast] ok -> %d/%d peers", dcnt, len(ps))
 }
 
 func (n *Node) NodeBye(c http.Client) {
 	cconns := n.GetConns()
-
-	log.Printf("[Bye] notifying to %d peers", len(cconns))
 
 	var actc int
 	for _, p := range cconns {
@@ -75,9 +78,9 @@ func (n *Node) NodeBye(c http.Client) {
 		actc++
 	}
 
-	log.Printf("[Bye] said bye to %d/%d peers", actc, len(cconns))
+	log.Printf("[nodebye] said bye to %d/%d peers", actc, len(cconns))
 }
 
 func (n *Node) RecvBye(peerid string) {
-	n.RmPeer(peerid)
+	n.Forget(peerid)
 }

@@ -44,12 +44,11 @@ func (pm *peermap) rm(uid string) {
 func (n *Node) Discover(ctx context.Context) {
 	rs, err := zeroconf.NewResolver(nil)
 	if err != nil {
-		log.Printf("[ERR] failed to init resolver: %v", err)
+		log.Printf("[err] failed to init resolver: %v", err)
 		return
 	}
 
 	en := make(chan *zeroconf.ServiceEntry)
-
 	go func() {
 		for {
 			select {
@@ -101,7 +100,7 @@ func (n *Node) Discover(ctx context.Context) {
 				n.peermap.add(newpeer)
 
 				if !exists || time.Since(oldp.LastSeen) > 1*time.Minute {
-					log.Printf("[DISCOVERY] Found peer %s (%s:%d)", pname, targetip, entry.Port)
+					log.Printf("[disc] found peer %s (%s:%d)", pname, targetip, entry.Port)
 					go func(p models.Peer) {
 						time.Sleep(1 * time.Second)
 						n.Syncw(p)
@@ -111,7 +110,7 @@ func (n *Node) Discover(ctx context.Context) {
 		}
 	}()
 
-	err = rs.Browse(ctx, service_name, "local.", en)
+	err = rs.Browse(ctx, models.ServiceName, "local.", en)
 	if err != nil {
 		log.Println("[ERR] browse failed:", err)
 	}

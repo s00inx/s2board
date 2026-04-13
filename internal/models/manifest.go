@@ -1,52 +1,58 @@
-// манифест записи это по сути её метадата, здесь сама структура и её методы, конструктор и все, что касается хеша
+// manifest for notes
 package models
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"time"
 )
 
-// сам манифест записи
 type Manifest struct {
-	// приватные поля
-	Hash      string `json:"hash"`
-	Signature string `json:"sig"`
-	FileHash  string `json:"filehash,omitempty"`
+	// public info
+	Title     string `json:"title"`
+	Desc      string `json:"desc"`
+	Timestamp int64  `json:"ts"`
+	Version   int64  `json:"ver"`
 
-	// публичная информация
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Desc    string `json:"desc"`
+	// file info (optional if note has file)
+	FileHash string `json:"filehash,omitempty"`
+	FileName string `json:"filename,omitempty"`
+	FileSize int64  `json:"size"`
 
+	// node info
 	AuthorUID  string `json:"author"`
 	AuthorName string `json:"author_name"`
 
-	Size      int64 `json:"size"`
-	Timestamp int64 `json:"ts"` // unix-timestamp
+	// manifest private info
+	Hash      string `json:"hash"`
+	Signature string `json:"sig"`
 }
 
-// конструктор для новой заметки
-func NewMan(title, content, desc, fileHash string, size int64) *Manifest {
+// make new manifest
+func NewMan(title, desc, auuid, auname, fhash, fname string, fsize int64) *Manifest {
 	return &Manifest{
-		Title:     title,
-		Content:   content,
-		Desc:      desc,
-		FileHash:  fileHash,
-		Size:      size,
-		Timestamp: time.Now().Unix(),
+		Title:      title,
+		Desc:       desc,
+		AuthorUID:  auuid,
+		AuthorName: auname,
+		FileHash:   fhash,
+		FileName:   fname,
+		FileSize:   fsize,
+		Timestamp:  time.Now().Unix(),
+		Version:    1,
 	}
 }
 
-// структура для того чтобы считать хеш,
-// мы берем толтко статические поля и считаем хеш от них в json
+// NewMannofile — если лень передавать пустые строки для текста
+func NewMannofile(title, desc, uid, name string) *Manifest {
+	return NewMan(title, desc, uid, name, "", "", 0)
+}
+
+// struct for safe calculating hash
 type hdata struct {
 	Title     string `json:"title"`
-	Content   string `json:"content"`
 	FileHash  string `json:"filehash,omitempty"`
 	Desc      string `json:"desc"`
 	Timestamp int64  `json:"ts"`
@@ -56,7 +62,6 @@ type hdata struct {
 func (m *Manifest) buildhdata() *hdata {
 	return &hdata{
 		Title:     m.Title,
-		Content:   m.Content,
 		FileHash:  m.FileHash,
 		Desc:      m.Desc,
 		Timestamp: m.Timestamp,
@@ -64,17 +69,16 @@ func (m *Manifest) buildhdata() *hdata {
 	}
 }
 
-// айди записи это 32 байта хеша статических полей
+// calculate sha-256 id for note
 func (m *Manifest) CalcID() []byte {
 	h := sha256.New()
 
 	jb, _ := json.Marshal(m.buildhdata())
-
-	io.Copy(h, bytes.NewReader(jb)) // считаем хеш от полного джсона
+	h.Write(jb)
 	return h.Sum(nil)
 }
 
-// подписать манифест перед тем как отправлять в сеть
+// sign manifest w note private key before pushing it to network
 func (m *Manifest) Sign(privk ed25519.PrivateKey) error {
 	hbytes := m.CalcID()
 	m.Hash = hex.EncodeToString(hbytes)
@@ -85,7 +89,7 @@ func (m *Manifest) Sign(privk ed25519.PrivateKey) error {
 	return nil
 }
 
-// проверить хкш
+// verify file hash
 func (m *Manifest) Verify() bool {
 	pubk, err := hex.DecodeString(m.AuthorUID)
 	if err != nil || len(pubk) != ed25519.PublicKeySize {

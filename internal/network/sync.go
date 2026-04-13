@@ -11,7 +11,7 @@ import (
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// получить список всех хешей которые есть у конкретной ноды
+// get list if all hashes
 func (n *Node) GetHashes() ([]string, error) {
 	return n.Storage.GetHashesList()
 }
@@ -36,8 +36,6 @@ func (n *Node) FetchManifests(hashes []string) ([]models.Manifest, error) {
 
 // полностью синхронизировать 2 ноды между собой в несколько этапов
 func (n *Node) Syncw(p models.Peer) error {
-	log.Printf("[SYNC] syncing with %s", p.UID[:8])
-
 	// 1: спрашиваю у ноды список хешей всех записей которые у нее есть
 	resp, err := n.client.Get(fmt.Sprintf("http://%s:%d/api/hello", p.IP, p.Port))
 	if err != nil {
@@ -56,11 +54,11 @@ func (n *Node) Syncw(p models.Peer) error {
 	}
 	// нечего качать, завершаем
 	if len(missing) == 0 {
-		log.Printf("[SYNC] nothing to sync w peer %s", p.UID[:8])
+		log.Printf("[sync] peer %s -> nothing to sync", p.UID[:8])
 		return nil
 	}
 
-	log.Printf("[SYNC] found %d missing notes from %s, fetching...", len(missing), p.UID[:8])
+	log.Printf("[sync] peer %s: missing %d -> fetching", p.UID[:8], len(missing))
 	body, _ := json.Marshal(missing)
 
 	// 2: делаем запрос к ноде, чтобы она выдала нам манифесты только по нужным хешам
@@ -79,29 +77,35 @@ func (n *Node) Syncw(p models.Peer) error {
 		return err
 	}
 
-	// добавляем манифесты в свое локальное хранилище
 	for _, man := range newnotes {
 		if !man.Verify() {
-			log.Printf("[WARNING] fake signature for note %s from peer %s --> ignored.", man.Hash, p.UID[:8])
+			log.Printf("[sync] fake signature for note '%s' from peer %s -> ignored.", man.Title, p.UID[:8])
 			continue
 		}
 
-		if man.FileHash != "" && !n.Storage.FileExists(man.FileHash) {
-			log.Printf("[SYNC] downloading blob for note: %s", man.Title)
-			err := n.DlBlob(p, man.FileHash)
-			if err != nil {
-				log.Printf("[ERR] failed to download blob %s: %v", man.FileHash[:8], err)
-				err = n.Storage.Save2db(man, models.Bucketlocal)
+		if man.FileSize == 0 && !n.Storage.HasNote(man.Hash) {
+			if err := n.Storage.Save2db(man, models.Bucketlocal); err != nil {
+				return err
 			}
 		}
 
-		err = n.Storage.Save2db(man, models.Bucketvirtual)
-		if err == nil {
-			log.Printf("[SYNC] added new note: %s", man.Title)
+		if man.FileSize > 0 && !n.Storage.FileExists(man.FileHash) && man.FileSize < mindlsize {
+			err := n.DlFile(p, man.FileHash)
+
+			if err != nil {
+				log.Printf("[sync] failed to dl %s: %v -> ignored", man.FileHash[:8], err)
+			}
+			log.Printf("[sync] dl blob for note: %s -> ok", man.Title)
+			if err := n.Storage.Save2db(man, models.Bucketlocal); err != nil {
+				return err
+			}
+		}
+
+		if err := n.Storage.Save2db(man, models.Bucketvirtual); err != nil {
+			return err
 		}
 	}
 
-	log.Printf("[SYNC] synced with %s - %s", p.UID, p.Name)
-
+	log.Printf("[sync] %s (%s) -> synced", p.Name, p.UID[:8])
 	return nil
 }

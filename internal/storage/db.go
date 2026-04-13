@@ -217,7 +217,7 @@ func (s *Storage) CleanVirtual() error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
 		err := tx.DeleteBucket([]byte(models.Bucketvirtual))
 		if err != nil {
-			return fmt.Errorf("[DB] failed to delete virtual bucket: %v", err)
+			return fmt.Errorf("[db] failed to delete virtual bucket: %v", err)
 		}
 
 		_, err = tx.CreateBucket([]byte(models.Bucketvirtual))
@@ -225,7 +225,7 @@ func (s *Storage) CleanVirtual() error {
 			return fmt.Errorf("[DB] failed to recreate virtual bucket: %v", err)
 		}
 
-		log.Println("[DB] virtual bucket cleaned up")
+		log.Println("[db] virtual bucket cleaned up")
 		return nil
 	})
 }
