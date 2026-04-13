@@ -130,44 +130,61 @@ func (a *App) recvh(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/create : создать новую заметку (multipart form)
+// POST /api/create : создать новую заметку (multipart form)
 func (a *App) createh(w http.ResponseWriter, r *http.Request) {
+	// 1. Парсим форму
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, "file too big", http.StatusBadRequest)
+		http.Error(w, "form error", http.StatusBadRequest)
 		return
 	}
-
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		http.Error(w, "file is required", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	tempPath := filepath.Join(os.TempDir(), header.Filename)
-	out, err := os.Create(tempPath)
-	if err != nil {
-		http.Error(w, "internal error", 500)
-		return
-	}
-	io.Copy(out, file)
-	out.Close()
-	defer os.Remove(tempPath)
 
 	title := r.FormValue("title")
 	desc := r.FormValue("desc")
 	author := r.FormValue("author")
 
-	man, err := a.Node.Uploadf(tempPath, title, desc, author)
+	if author == "" {
+		author = a.cfg.Name
+	}
+
+	var man *models.Manifest
+	var err error
+
+	// 2. Пробуем получить файл
+	file, header, fileErr := r.FormFile("file")
+
+	switch fileErr {
+	case nil:
+		// --- СЛУЧАЙ С ФАЙЛОМ ---
+		defer file.Close()
+
+		tempPath := filepath.Join(os.TempDir(), header.Filename)
+		out, err := os.Create(tempPath)
+		if err != nil {
+			http.Error(w, "internal error", 500)
+			return
+		}
+		io.Copy(out, file)
+		out.Close()
+		defer os.Remove(tempPath)
+
+		man, err = a.Node.Uploadf(tempPath, title, desc, author)
+	case http.ErrMissingFile:
+		man, err = a.Node.Uploadf("", title, desc, author)
+	default:
+		http.Error(w, "bad file", http.StatusBadRequest)
+		return
+	}
+
 	if err != nil {
-		log.Printf("[ERR] Upload failed: %v", err)
+		log.Printf("[ERR] Create failed: %v", err)
 		http.Error(w, "failed to create manifest", 500)
 		return
 	}
 
-	go a.Node.Broadcast(man)
+	// Рассылаем всем
+	go a.Node.Broadcast(man, 's')
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(man)
+	w.WriteHeader(http.StatusOK)
 }
 
 // GET /api/getpeers : посмотреть список всех пиров в локальной сети
@@ -176,4 +193,31 @@ func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(conns)
+}
+
+// POST /api/del : удалить манифест у себя и разослать всем
+func (a *App) delh(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Mhash string `json:"hash"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	man, err := a.Node.Storage.Getmanh(req.Mhash, "virtual")
+	if err != nil || man == nil {
+		http.Error(w, "manifest not found", http.StatusNotFound)
+		return
+	}
+	go a.Node.Broadcast(man, 'd')
+
+	err = a.Node.RmNote(req.Mhash)
+	if err != nil {
+		log.Printf("[DEL] error removing %s: %v", req.Mhash[:8], err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }

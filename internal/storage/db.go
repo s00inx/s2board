@@ -17,16 +17,11 @@ import (
 // 1: локальные файлы - те, которые лежат на диске (меняется ток при сохранении на диск, только внутри программы)
 // 2: вся доска с манифестами - меняется при синхронизации и отдается на фронтенд
 
-const (
-	localdb = "local"
-	virtdb  = "virtual"
-)
-
 // сохранить файл в бд в:
 // local (когда сохраняем 100% на диске)
 // virtual (все манифесты сюда)
 func (s *Storage) Save2db(man models.Manifest, bucket string) error {
-	if bucket != localdb && bucket != virtdb {
+	if bucket != localbucket && bucket != virtbucket {
 		return errors.New("[DB] invalid bucket")
 	}
 
@@ -43,8 +38,12 @@ func (s *Storage) Save2db(man models.Manifest, bucket string) error {
 			return err
 		}
 
-		b = tx.Bucket([]byte("file_index"))
-		return b.Put([]byte(man.FileHash), []byte(man.Hash))
+		if man.FileHash != "" {
+			b = tx.Bucket([]byte(fibucket))
+			return b.Put([]byte(man.FileHash), []byte(man.Hash))
+		}
+
+		return nil
 	})
 }
 
@@ -74,7 +73,7 @@ func (s *Storage) Getmanfh(fhash string, bucket string) (*models.Manifest, error
 	var m models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		fb := tx.Bucket([]byte("file_index"))
+		fb := tx.Bucket([]byte(fibucket))
 		if fb == nil {
 			return errors.New("[DB] no file index")
 		}
@@ -98,23 +97,41 @@ func (s *Storage) Getmanfh(fhash string, bucket string) (*models.Manifest, error
 	return &m, err
 }
 
-// удалить запись из бд по хешу
-func (s *Storage) DelManifest(hash string, bucket string) error {
-	return s.DB.Update(func(tx *bbolt.Tx) error {
+// удалить запись из бд по хешу (и вернуть хеш файла)
+func (s *Storage) Delman(hash string, bucket string) (string, error) {
+	var fh string
+
+	err := s.DB.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		if b == nil {
-			return fmt.Errorf("bucket not found")
+			return fmt.Errorf("bucket %s not found", bucket)
+		}
+
+		data := b.Get([]byte(hash))
+		if data == nil {
+			return fmt.Errorf("manifest not found")
 		}
 
 		var m models.Manifest
-		data := b.Get([]byte(hash))
-		if data != nil {
-			json.Unmarshal(data, &m)
-			// s.DeleteFile(m.FileHash)
+		if err := json.Unmarshal(data, &m); err == nil {
+			fh = m.FileHash
 		}
 
-		return b.Delete([]byte(hash))
+		if err := b.Delete([]byte(hash)); err != nil {
+			return err
+		}
+
+		// чистим и индекс
+		if bucket == "local" {
+			if i := tx.Bucket([]byte("file_index")); i != nil {
+				i.Delete([]byte(fh))
+			}
+		}
+
+		return nil
 	})
+
+	return fh, err
 }
 
 // получить все хеши для синхронизации, берем из локальной бд.
@@ -123,7 +140,7 @@ func (s *Storage) GetHashesList() ([]string, error) {
 	var hashes []string
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(localdb))
+		b := tx.Bucket([]byte(localbucket))
 		if b == nil {
 			return nil
 		}
@@ -146,7 +163,7 @@ func (s *Storage) HasNote(hash string) bool {
 	var exists bool
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(localdb))
+		b := tx.Bucket([]byte(localbucket))
 		if b == nil {
 			return nil
 		}
@@ -170,7 +187,7 @@ func (s *Storage) GetManlist() []models.Manifest {
 	var manlist []models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("virtual"))
+		b := tx.Bucket([]byte(virtbucket))
 		if b == nil {
 			return nil
 		}
@@ -198,12 +215,12 @@ func (s *Storage) GetManlist() []models.Manifest {
 // очистить виртуальную доску
 func (s *Storage) CleanVirtual() error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
-		err := tx.DeleteBucket([]byte("virtual"))
+		err := tx.DeleteBucket([]byte(virtbucket))
 		if err != nil {
 			return fmt.Errorf("[DB] failed to delete virtual bucket: %v", err)
 		}
 
-		_, err = tx.CreateBucket([]byte("virtual"))
+		_, err = tx.CreateBucket([]byte(virtbucket))
 		if err != nil {
 			return fmt.Errorf("[DB] failed to recreate virtual bucket: %v", err)
 		}
@@ -215,12 +232,12 @@ func (s *Storage) CleanVirtual() error {
 
 func (s *Storage) RepubLocal() error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
-		local := tx.Bucket([]byte("local"))
+		local := tx.Bucket([]byte(localbucket))
 		if local == nil {
 			return nil
 		}
 
-		virtual, err := tx.CreateBucketIfNotExists([]byte("virtual"))
+		virtual, err := tx.CreateBucketIfNotExists([]byte(virtbucket))
 		if err != nil {
 			return err
 		}

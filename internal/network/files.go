@@ -14,6 +14,10 @@ import (
 	"github.com/s00inx/s2board/internal/models"
 )
 
+const (
+	mindlsize = 25 * 1 << 20
+)
+
 // мапа пиров которые раздают конкретный файл (если его нет у ноды)
 // map[хкш файла]список_id_пиров (сделано потому что мы имеем дело с реальными файлами на диске, так зачем давать к ним лоступ по айди манифеста?)
 type fpeermap struct {
@@ -101,7 +105,9 @@ type nodeStorage interface {
 	//
 	CleanVirtual() error
 	//
-	DeleteFile(fhash string) error
+	Delfile(fhash string) error
+	//
+	Delman(hash string, bucket string) (string, error)
 	//
 	RepubLocal() error
 }
@@ -110,9 +116,15 @@ type nodeStorage interface {
 // сырые данные -> сохранение на диск -> подписываем -> сохранение в бд -> готовый manifest
 func (n *Node) Uploadf(src, title, desc, authorname string) (*models.Manifest, error) {
 	// сохраняем файл физически на диск
-	fhash, fsize, err := n.Storage.Save2disk(src)
-	if err != nil {
-		return nil, err
+	var fhash string
+	var fsize int64
+	var err error
+
+	if src != "" {
+		fhash, fsize, err = n.Storage.Save2disk(src)
+		if err != nil {
+			return nil, fmt.Errorf("disk err: %w", err)
+		}
 	}
 
 	man := models.NewMan(
@@ -133,7 +145,7 @@ func (n *Node) Uploadf(src, title, desc, authorname string) (*models.Manifest, e
 
 	// сохраняем в бд потому что он лежит на диске
 	if err = n.Storage.Save2db(*man, "local"); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("db err: %w", err)
 	}
 
 	// свои посты тоже должны быть в ленте
@@ -160,7 +172,7 @@ func (n *Node) Recvf(p models.Peer, man *models.Manifest) error {
 		return n.Storage.Save2db(*man, "local")
 	}
 
-	if man.Size <= 25*1<<20 {
+	if man.Size <= mindlsize {
 		go func() {
 			err := n.DlBlob(p, man.FileHash)
 			if err == nil {
@@ -260,8 +272,26 @@ func (n *Node) DlBlob(p models.Peer, fhash string) error {
 
 	realhash := hex.EncodeToString(h.Sum(nil))
 	if fhash != realhash {
-		n.Storage.DeleteFile(fhash)
+		n.Storage.Delfile(fhash)
 		return fmt.Errorf("hash mismatch: expected %s, got %s", fhash[:8], realhash[:8])
+	}
+
+	return nil
+}
+
+// удаляем заметку с доски и из памяти
+func (n *Node) RmNote(hash string) error {
+	fhash, err := n.Storage.Delman(hash, "local")
+	if err != nil {
+		return fmt.Errorf("")
+	}
+
+	if _, err := n.Storage.Delman(hash, "virtual"); err != nil {
+		return fmt.Errorf("")
+	}
+
+	if fhash != "" {
+		return n.Storage.Delfile(fhash)
 	}
 
 	return nil

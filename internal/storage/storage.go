@@ -9,6 +9,10 @@ import (
 
 const (
 	dbname = "s2.db"
+
+	localbucket = "local"
+	virtbucket  = "virtual"
+	fibucket    = "file_index"
 )
 
 // Storage должен удовлетворять интерфейсу nodeStorage из network
@@ -29,7 +33,7 @@ func Init(dir string) (*Storage, error) {
 
 	// создаем бакет для манифестов файлов которые уже есть на диске (хеш манифеста : манифест)
 	err = db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(localdb))
+		_, err := tx.CreateBucketIfNotExists([]byte(localbucket))
 		if err != nil {
 			return err
 		}
@@ -39,7 +43,7 @@ func Init(dir string) (*Storage, error) {
 			return err
 		}
 
-		_, err = tx.CreateBucketIfNotExists([]byte(virtdb))
+		_, err = tx.CreateBucketIfNotExists([]byte(virtbucket))
 		return err
 	})
 

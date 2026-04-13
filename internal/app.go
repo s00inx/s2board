@@ -94,8 +94,10 @@ func (a *App) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("GET /api/hello", a.helloh)
 	mux.HandleFunc("GET /api/bye/{peer_id}", a.byeh)
 
-	mux.HandleFunc("POST /api/create/", a.createh)
-	mux.HandleFunc("GET /api/getpeers/", a.getpeersh)
+	mux.HandleFunc("POST /api/create", a.createh)
+	mux.HandleFunc("POST /api/del", a.delh)
+
+	mux.HandleFunc("GET /api/getpeers", a.getpeersh)
 
 	return mux
 }

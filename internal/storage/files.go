@@ -68,10 +68,18 @@ func (s *Storage) Save2disk(src string) (string, int64, error) {
 }
 
 // удалить файл из памяти (точнее удалить линк, сам файл из памяти никуда не денется)
-func (s *Storage) DeleteFile(fhash string) error {
+func (s *Storage) Delfile(fhash string) error {
 	target := s.Fhash2path(fhash)
 
-	return os.Remove(target)
+	if err := os.Remove(target); err != nil {
+		return err
+	}
+
+	// если директория не пустая, она не удалится
+	pdir := filepath.Dir(target)
+	os.Remove(pdir)
+
+	return nil
 }
 
 // проверить наличие файла по его хешу
@@ -80,6 +88,7 @@ func (s *Storage) FileExists(fhash string) bool {
 	return err == nil
 }
 
+// сохранить скачанный файл прям на диск
 func (s *Storage) SaveBlob(fhash string, r io.Reader) error {
 	tpath := s.Fhash2path(fhash)
 	os.MkdirAll(filepath.Dir(tpath), 0755)

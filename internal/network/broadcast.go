@@ -6,13 +6,18 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/s00inx/s2board/internal/models"
 )
 
 // раздать файл всем кто находится в одной локальной сети
-func (n *Node) Broadcast(man *models.Manifest) {
+// action - сохранение ('s') или удаление ('d')
+func (n *Node) Broadcast(man *models.Manifest, action byte) {
+	if action != 'd' && action != 's' {
+		log.Printf("[BROADCAST] invalid action -> skipped")
+		return
+	}
+
 	ps := n.GetConns()
 
 	if len(ps) == 0 {
@@ -34,8 +39,14 @@ func (n *Node) Broadcast(man *models.Manifest) {
 	log.Printf("[BROADCAST] sending update to %d peers...\n", len(ps))
 	for _, p := range ps {
 		go func(peer models.Peer) {
-			c := http.Client{Timeout: 5 * time.Second}
-			resp, err := c.Post(fmt.Sprintf("http://%s:%d/api/recv", peer.IP, peer.Port), "application/json", bytes.NewBuffer(jsond))
+			var durl string
+			if action == 's' {
+				durl = fmt.Sprintf("http://%s:%d/api/recv", peer.IP, peer.Port)
+			} else {
+				durl = fmt.Sprintf("http://%s:%d/api/del", peer.IP, peer.Port)
+			}
+
+			resp, err := n.client.Post(durl, "application/json", bytes.NewBuffer(jsond))
 			if err != nil {
 				log.Printf("[BROADCAST] failed to send to %s: %v", peer.UID[:8], err)
 				return
