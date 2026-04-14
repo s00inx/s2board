@@ -1,3 +1,4 @@
+// program local content-adressed storage methods
 package storage
 
 import (
@@ -8,23 +9,19 @@ import (
 	"path/filepath"
 )
 
-const (
-	blobdirname = "blobs"
-)
-
 // file hash -> dir with file
 func (s *Storage) Fhash2dir(fhash string) string {
 	shard := fhash[:2]
-	return filepath.Join(s.Dir, blobdirname, shard)
+	return filepath.Join(s.Dir, s.BlobDirName, shard)
 }
 
 // file hash -> path to file
 func (s *Storage) Fhash2path(fhash string) string {
 	shard := fhash[:2]
-	return filepath.Join(s.Dir, blobdirname, shard, fhash)
+	return filepath.Join(s.Dir, s.BlobDirName, shard, fhash)
 }
 
-// save file to hashed path (hard link or copy)
+// save file with his hash (hard link or copy)
 func (s *Storage) savetopath(file *os.File, src string) (string, error) {
 	hehash := sha256.New()
 	if _, err := io.Copy(hehash, file); err != nil {
@@ -55,22 +52,19 @@ func (s *Storage) savetopath(file *os.File, src string) (string, error) {
 	return fhash, nil
 }
 
-// регистрируем наш файл непосредственно открывая его на диске.
+// save file to disk
 func (s *Storage) Save2disk(src string) (string, int64, error) {
-	// открываем файл
 	file, err := os.Open(src)
 	if err != nil {
 		return "", 0, err
 	}
 	defer file.Close()
 
-	// сохраняем физически на диск
 	fhash, err := s.savetopath(file, src)
 	if err != nil {
 		return "", 0, err
 	}
 
-	// узнаем инфо о нем, чтобы отправить данные для сохранения
 	info, err := os.Stat(src)
 	if err != nil {
 		return "", 0, err
@@ -93,7 +87,7 @@ func (s *Storage) SaveBlob(fhash string, r io.Reader) error {
 	return err
 }
 
-// удалить файл из локальной памяти программы
+// delete file from local storage
 func (s *Storage) Delfile(fhash string) error {
 	target := s.Fhash2path(fhash)
 
@@ -101,14 +95,13 @@ func (s *Storage) Delfile(fhash string) error {
 		return err
 	}
 
-	// если директория не пустая, она не удалится
 	pdir := filepath.Dir(target)
 	os.Remove(pdir)
 
 	return nil
 }
 
-// проверить наличие файла в локальном хранилище программы по его хешу
+// check if file exist in local storage
 func (s *Storage) FileExists(fhash string) bool {
 	_, err := os.Stat(s.Fhash2path(fhash))
 	return err == nil

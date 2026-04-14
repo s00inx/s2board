@@ -181,7 +181,7 @@ func (a *App) createh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Рассылаем всем
-	go a.Node.Broadcast(man, 's')
+	go a.Node.Broadcast(man, models.BroadcastSave)
 
 	w.WriteHeader(http.StatusOK)
 }

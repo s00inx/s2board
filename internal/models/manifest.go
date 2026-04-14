@@ -28,9 +28,11 @@ type Manifest struct {
 	// manifest private info
 	Hash      string `json:"hash"`
 	Signature string `json:"sig"`
+
+	_ [8]byte
 }
 
-// make new manifest
+// make new manifest with file
 func NewMan(title, desc, auuid, auname, fhash, fname string, fsize int64) *Manifest {
 	return &Manifest{
 		Title:      title,
@@ -45,7 +47,7 @@ func NewMan(title, desc, auuid, auname, fhash, fname string, fsize int64) *Manif
 	}
 }
 
-// NewMannofile — если лень передавать пустые строки для текста
+// fast func to create manifest with no file
 func NewMannofile(title, desc, uid, name string) *Manifest {
 	return NewMan(title, desc, uid, name, "", "", 0)
 }

@@ -18,6 +18,7 @@ type Node struct {
 	IP      string
 	Port    int
 	PubName string
+
 	Storage nodeStorage
 	client  http.Client
 

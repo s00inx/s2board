@@ -47,7 +47,6 @@ func (s *Storage) Save2db(man models.Manifest, bucket string) error {
 	})
 }
 
-// взять манифест из бд по хешу
 func (s *Storage) Getmanh(hash string, bucket string) (*models.Manifest, error) {
 	var m models.Manifest
 
@@ -97,7 +96,6 @@ func (s *Storage) Getmanfh(fhash string, bucket string) (*models.Manifest, error
 	return &m, err
 }
 
-// удалить запись из бд по хешу (и вернуть хеш файла)
 func (s *Storage) Delman(hash string, bucket string) (string, error) {
 	var fh string
 
@@ -157,8 +155,6 @@ func (s *Storage) GetHashesList() ([]string, error) {
 	return hashes, nil
 }
 
-// есть ли в бакете такая запись?
-// это нужно для скачивания -> есть смылсл проверять только в локале
 func (s *Storage) HasNote(hash string) bool {
 	var exists bool
 
@@ -182,7 +178,6 @@ func (s *Storage) HasNote(hash string) bool {
 	return exists
 }
 
-// получить все манифесты для фронтенда (то есть ищем только в виртуал)
 func (s *Storage) GetManlist() []models.Manifest {
 	var manlist []models.Manifest
 
@@ -212,7 +207,6 @@ func (s *Storage) GetManlist() []models.Manifest {
 	return manlist
 }
 
-// очистить виртуальную доску
 func (s *Storage) CleanVirtual() error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
 		err := tx.DeleteBucket([]byte(models.Bucketvirtual))

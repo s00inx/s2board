@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/s00inx/s2board/internal/models"
@@ -33,12 +34,9 @@ func (fm *fpeermap) add(hash string, peer models.Peer) {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
 
-	for _, p := range fm.d[hash] {
-		if p == peer.UID {
-			return
-		}
+	if slices.Contains(fm.d[hash], peer.UID) {
+		return
 	}
-
 	fm.d[hash] = append(fm.d[hash], peer.UID)
 }
 
@@ -99,10 +97,7 @@ type nodeStorage interface {
 	RepubLocal() error
 }
 
-// загрузить файл на доску из локального хранилища
-// сырые данные -> сохранение на диск -> подписываем -> сохранение в бд -> готовый manifest
 func (n *Node) Uploadf(src, title, desc string) (*models.Manifest, error) {
-	// сохраняем файл физически на диск
 	var fhash string
 	var fsize int64
 	var err error
@@ -158,7 +153,7 @@ func (n *Node) Recvf(p models.Peer, man *models.Manifest) error {
 	}
 
 	// 4. auto-download blobs under max size limit
-	if man.FileSize <= mindlsize {
+	if man.FileSize <= mindlsize && man.FileSize > 0 {
 		go func() {
 			err := n.DlFile(p, man.FileHash)
 			if err == nil {
@@ -169,7 +164,11 @@ func (n *Node) Recvf(p models.Peer, man *models.Manifest) error {
 	}
 
 	// 5. ask peers for file availability -> add them to fpeermap
-	go n.askpeers(man.FileHash)
+	if man.FileSize > 0 {
+		go n.askpeers(man.FileHash)
+	}
+
+	log.Printf("[recv] %s from %s:%d", man.Hash[:8], p.IP, p.Port)
 
 	return nil
 }

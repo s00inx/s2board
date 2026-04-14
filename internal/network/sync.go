@@ -34,25 +34,27 @@ func (n *Node) FetchManifests(hashes []string) ([]models.Manifest, error) {
 	return res, nil
 }
 
-// полностью синхронизировать 2 ноды между собой в несколько этапов
+// sync node and peer
 func (n *Node) Syncw(p models.Peer) error {
-	// 1: спрашиваю у ноды список хешей всех записей которые у нее есть
+	// ask peer about its 'local' hashes
 	resp, err := n.client.Get(fmt.Sprintf("http://%s:%d/api/hello", p.IP, p.Port))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	var allh []string
-	if err := json.NewDecoder(resp.Body).Decode(&allh); err != nil {
+
+	var rem []string
+	if err := json.NewDecoder(resp.Body).Decode(&rem); err != nil {
 		return err
 	}
-	var missing []string // собираю список нужных хешей
-	for _, h := range allh {
+	var missing []string
+	for _, h := range rem {
 		if !n.Storage.HasNote(h) {
 			missing = append(missing, h)
 		}
 	}
-	// нечего качать, завершаем
+
+	// if nothing is missed - end
 	if len(missing) == 0 {
 		log.Printf("[sync] peer %s -> nothing to sync", p.UID[:8])
 		return nil
@@ -61,7 +63,7 @@ func (n *Node) Syncw(p models.Peer) error {
 	log.Printf("[sync] peer %s: missing %d -> fetching", p.UID[:8], len(missing))
 	body, _ := json.Marshal(missing)
 
-	// 2: делаем запрос к ноде, чтобы она выдала нам манифесты только по нужным хешам
+	// do request with all missing hashes
 	fresp, err := n.client.Post(
 		fmt.Sprintf("http://%s:%d/api/fetch", p.IP, p.Port),
 		"application/json",
@@ -72,12 +74,12 @@ func (n *Node) Syncw(p models.Peer) error {
 	}
 	defer fresp.Body.Close()
 
-	var newnotes []models.Manifest
-	if err := json.NewDecoder(fresp.Body).Decode(&newnotes); err != nil {
+	var newmanl []models.Manifest
+	if err := json.NewDecoder(fresp.Body).Decode(&newmanl); err != nil {
 		return err
 	}
 
-	for _, man := range newnotes {
+	for _, man := range newmanl {
 		if !man.Verify() {
 			log.Printf("[sync] fake signature for note '%s' from peer %s -> ignored.", man.Title, p.UID[:8])
 			continue

@@ -11,21 +11,18 @@ import (
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// потокобезопасная мапа для активных соединений, но без ненужных интерфейсов
-// map[uid]Peer_struct
+// active peers in local network / map[uid]peer
 type peermap struct {
 	d  map[string]models.Peer
 	mu sync.Mutex
 }
 
-// инициализируем новую пир-мап (один раз при ините ноды)
 func newpeermap() *peermap {
 	return &peermap{
-		d: make(map[string]models.Peer, 0), // инициализируем мапу
+		d: make(map[string]models.Peer, 0),
 	}
 }
 
-// добавить пир в мапу \ сделать его активным
 func (pm *peermap) add(p models.Peer) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -33,14 +30,14 @@ func (pm *peermap) add(p models.Peer) {
 	pm.d[p.UID] = p
 }
 
-// удалить неактивный (или недоступный) пир из мапы
 func (pm *peermap) rm(uid string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
+
 	delete(pm.d, uid)
 }
 
-// запустить поиск других узлов в сети и синхронизироваться с ними
+// start mdns node discovering
 func (n *Node) Discover(ctx context.Context) {
 	rs, err := zeroconf.NewResolver(nil)
 	if err != nil {

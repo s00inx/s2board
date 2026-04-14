@@ -18,7 +18,6 @@ func (n *Node) Broadcast(man *models.Manifest, action byte) {
 	}
 
 	ps := n.GetConns()
-
 	if len(ps) == 0 {
 		log.Println("[broadcast] no peers -> ok")
 		return
@@ -67,9 +66,8 @@ func (n *Node) Broadcast(man *models.Manifest, action byte) {
 }
 
 func (n *Node) NodeBye(c http.Client) {
-	cconns := n.GetConns()
+	cconns, actc := n.GetConns(), 0
 
-	var actc int
 	for _, p := range cconns {
 		_, err := c.Get(fmt.Sprintf("http://%s:%d/api/bye/%s", p.IP, p.Port, n.UID))
 		if err != nil {
@@ -78,7 +76,7 @@ func (n *Node) NodeBye(c http.Client) {
 		actc++
 	}
 
-	log.Printf("[nodebye] said bye to %d/%d peers", actc, len(cconns))
+	log.Printf("[nodebye] said bye to %d/%d peers -> goodbye!", actc, len(cconns))
 }
 
 func (n *Node) RecvBye(peerid string) {

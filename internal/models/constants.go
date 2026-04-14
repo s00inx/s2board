@@ -14,6 +14,7 @@ const (
 	BroadcastDel  = 'd'
 )
 
+// mdns service options (network/mdns)
 const (
 	ServiceName = "_s2board._tcp"
 )
