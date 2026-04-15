@@ -8,13 +8,14 @@ const (
 	Bucketfi      = "file_index"
 )
 
-// broadcast options (network/broadcast)
-const (
-	BroadcastSave = 's'
-	BroadcastDel  = 'd'
-)
-
 // mdns service options (network/mdns)
 const (
 	ServiceName = "_s2board._tcp"
+)
+
+type Actcode uint8
+
+const (
+	Actsave Actcode = iota + 1
+	Actdel
 )

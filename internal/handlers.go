@@ -201,7 +201,9 @@ func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 		AuthorHash string `json:"author"`
 	}
 
+	// man hash for deletion, author hash for security
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("eror: %s", err)
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -218,11 +220,11 @@ func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go a.Node.Broadcast(man, 'd')
+	go a.Node.Broadcast(man, models.BroadcastDel)
 
 	err = a.Node.RmNote(req.Mhash)
 	if err != nil {
-		log.Printf("[DEL] error removing %s: %v", req.Mhash[:8], err)
+		log.Printf("[del] error removing %s: %v", req.Mhash[:8], err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -231,6 +233,7 @@ func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 // GET /api/me
 func (a *App) meh(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
-		"uid": a.Node.UID,
+		"uid":  a.Node.UID,
+		"name": a.Node.PubName,
 	})
 }

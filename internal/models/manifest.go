@@ -47,7 +47,7 @@ func NewMan(title, desc, auuid, auname, fhash, fname string, fsize int64) *Manif
 	}
 }
 
-// fast func to create manifest with no file
+// fast func to create manifest with no file`
 func NewMannofile(title, desc, uid, name string) *Manifest {
 	return NewMan(title, desc, uid, name, "", "", 0)
 }

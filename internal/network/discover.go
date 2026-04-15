@@ -113,7 +113,7 @@ func (n *Node) Discover(ctx context.Context) {
 	}
 }
 
-// найти активные соединения на момент вызова функции (просто прочитать пирмап)
+// get available peers
 func (n *Node) GetConns() []models.Peer {
 	n.peermap.mu.Lock()
 	defer n.peermap.mu.Unlock()
