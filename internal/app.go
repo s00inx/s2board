@@ -90,10 +90,11 @@ func (a *App) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("GET /api/hasf/{hash}", a.hasfh)
 
 	// sync and sending
-	mux.HandleFunc("POST /api/recv", a.recvh)
 	mux.HandleFunc("POST /api/fetch", a.fetchh)
 	mux.HandleFunc("GET /api/hello", a.helloh)
-	mux.HandleFunc("GET /api/bye/{peer_id}", a.byeh)
+
+	// p2p network
+	mux.HandleFunc("POST /api/p2p", a.p2phandler)
 
 	// posting files
 	mux.HandleFunc("POST /api/create", a.createh)

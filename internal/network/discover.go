@@ -82,9 +82,9 @@ func (n *Node) Discover(ctx context.Context) {
 					pname = "anonymous"
 				}
 
-				n.peermap.mu.Lock()
-				oldp, exists := n.peermap.d[uid]
-				n.peermap.mu.Unlock()
+				n.peers.mu.Lock()
+				oldp, exists := n.peers.d[uid]
+				n.peers.mu.Unlock()
 
 				newpeer := models.Peer{
 					UID:      uid,
@@ -94,7 +94,7 @@ func (n *Node) Discover(ctx context.Context) {
 					LastSeen: time.Now(),
 				}
 
-				n.peermap.add(newpeer)
+				n.peers.add(newpeer)
 
 				if !exists || time.Since(oldp.LastSeen) > 1*time.Minute {
 					log.Printf("[disc] found peer %s (%s:%d)", pname, targetip, entry.Port)
@@ -115,11 +115,11 @@ func (n *Node) Discover(ctx context.Context) {
 
 // get available peers
 func (n *Node) GetConns() []models.Peer {
-	n.peermap.mu.Lock()
-	defer n.peermap.mu.Unlock()
+	n.peers.mu.Lock()
+	defer n.peers.mu.Unlock()
 
-	plist := make([]models.Peer, 0, len(n.peermap.d))
-	for _, v := range n.peermap.d {
+	plist := make([]models.Peer, 0, len(n.peers.d))
+	for _, v := range n.peers.d {
 		plist = append(plist, v)
 	}
 

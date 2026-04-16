@@ -22,8 +22,8 @@ type Node struct {
 	Storage nodeStorage
 	client  http.Client
 
-	peermap peermap
-	fpeers  fpeermap
+	peers     *peermap
+	filepeers *fpeermap
 }
 
 func ConnNode(prkpath string, port int, name string) (*Node, error) {
@@ -57,17 +57,12 @@ func ConnNode(prkpath string, port int, name string) (*Node, error) {
 
 	log.Printf("[init] node connected")
 	return &Node{
-		PublicK:  pub,
-		PrivateK: priv,
-		UID:      hex.EncodeToString(pub),
-		Port:     port,
-		PubName:  name,
-		peermap:  *newpeermap(),
-		fpeers:   *newfilepeermap(),
+		PublicK:   pub,
+		PrivateK:  priv,
+		UID:       hex.EncodeToString(pub),
+		Port:      port,
+		PubName:   name,
+		peers:     newpeermap(),
+		filepeers: newfilepeermap(),
 	}, nil
-}
-
-func (n *Node) Forget(peeruid string) {
-	n.fpeers.rmpeer(peeruid)
-	n.peermap.rm(peeruid)
 }

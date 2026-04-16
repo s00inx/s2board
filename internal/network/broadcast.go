@@ -1,6 +1,7 @@
 package network
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -11,7 +12,7 @@ import (
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// unified broadcast packet
+// unified broadcast packet above tcp for scalable file sharing
 type BCPacket struct {
 	Senderuid string         `json:"sender"`
 	Payload   []byte         `json:"payload"`
@@ -20,7 +21,7 @@ type BCPacket struct {
 }
 
 // build a new packet for broadcast
-func (n *Node) Newpacket(man *models.Manifest, action byte) *BCPacket {
+func (n *Node) NewBCp(man *models.Manifest, action models.Actcode) *BCPacket {
 	jd, _ := json.Marshal(man)
 	pk := BCPacket{
 		Senderuid: n.UID,
@@ -28,78 +29,59 @@ func (n *Node) Newpacket(man *models.Manifest, action byte) *BCPacket {
 		Action:    models.Actcode(action),
 	}
 
-	hdata := append(jd, action)
+	// sign: man json + action
+	hdata := append(jd, byte(action))
 	pk.Signature = hex.EncodeToString(ed25519.Sign(n.PrivateK, hdata))
 
 	return &pk
 }
 
-func (n *Node) Broadcastt(p *BCPacket) {
+// verify packet (authencity and integrity)
+func (p *BCPacket) Verify() bool {
+	pub, err := hex.DecodeString(p.Senderuid)
+	if err != nil || len(pub) != ed25519.PublicKeySize {
+		return false
+	}
+
+	sig, err := hex.DecodeString(p.Signature)
+	if err != nil {
+		return false
+	}
+
+	hdata := append(p.Payload, byte(p.Action))
+	return ed25519.Verify(pub, hdata, sig)
+}
+
+// broadcast bcpacket to all known peers in local network
+func (n *Node) Broadcast(p *BCPacket) {
+	p2send, err := json.Marshal(p)
+	if err != nil {
+		log.Printf("[broadcast] marshal error: %v -> ignored", err)
+		return
+	}
+
 	ps := n.GetConns()
 	if len(ps) == 0 {
 		log.Println("[broadcast] no peers -> ok")
 		return
 	}
 
-	data2send, err := json.Marshal(p)
-	if err != nil {
-		log.Printf("[broadcast] marshal error: %v -> ignored", err)
-		return
+	for _, dstpeer := range ps {
+		go func(p models.Peer) {
+			var dsturl string = fmt.Sprintf("http://%s:%d/api/p2p", p.IP, p.Port)
+			resp, err := n.client.Post(dsturl, "application/json", bytes.NewReader(p2send))
+			if err != nil {
+				log.Printf("[broadcast] failed to send to %s", p.UID[:8])
+				return
+			}
+
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				log.Printf("[broadcast] code %d from %s", resp.StatusCode, p.UID[:8])
+			} else {
+				log.Printf("[broadcast] delivered to %s", p.UID[:8])
+			}
+		}(dstpeer)
 	}
-
-	// parsing logic
-}
-
-// broadcast message (the bcpacket) to all peers in local network
-// func (n *Node) Broadcast(man *models.Manifest, action byte) {
-
-// 	payload := map[string]any{
-// 		"peer":     models.Peer{UID: n.UID, IP: n.IP, Port: n.Port},
-// 		"manifest": man,
-// 	}
-// 	jsond, err := json.Marshal(payload)
-
-// 	log.Printf("[broadcast] found %d peers -> sending", len(ps))
-// 	for _, p := range ps {
-// 		go func(peer models.Peer) {
-// 			var durl string
-// 			if action == byte(models.Actsave) {
-// 				durl = fmt.Sprintf("http://%s:%d/api/recv", peer.IP, peer.Port)
-// 			} else {
-// 				durl = fmt.Sprintf("http://%s:%d/api/del", peer.IP, peer.Port)
-// 			}
-
-// 			resp, err := n.client.Post(durl, "application/json", bytes.NewBuffer(jsond))
-// 			if err != nil {
-// 				log.Printf("[broadcast] faild to send to %s: %v -> ignored", peer.UID[:8], err)
-// 				return
-// 			}
-
-// 			defer resp.Body.Close()
-
-// 			if resp.StatusCode == http.StatusOK {
-// 				log.Printf("[broadcast] ok -> delivered to %s", peer.UID[:8])
-// 			} else {
-// 				log.Printf("[broadcast] code %d for peer %s", resp.StatusCode, peer.UID[:8])
-// 			}
-// 		}(p)
-// 	}
-// }
-
-func (n *Node) NodeBye(c http.Client) {
-	cconns, actc := n.GetConns(), 0
-
-	for _, p := range cconns {
-		_, err := c.Get(fmt.Sprintf("http://%s:%d/api/bye/%s", p.IP, p.Port, n.UID))
-		if err != nil {
-			continue
-		}
-		actc++
-	}
-
-	log.Printf("[nodebye] said bye to %d/%d peers -> goodbye!", actc, len(cconns))
-}
-
-func (n *Node) RecvBye(peerid string) {
-	n.Forget(peerid)
 }

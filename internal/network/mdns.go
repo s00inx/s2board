@@ -63,3 +63,13 @@ func GetLocalIface() (*net.Interface, string) {
 	// ?? maybe panic here
 	return nil, "127.0.0.1"
 }
+
+// when node leaves the network / recv bye bc packet
+func (n *Node) ForgetPeer(peeruid string) {
+	h2del := n.filepeers.rm(peeruid)
+	n.peers.rm(peeruid)
+
+	for _, h := range h2del {
+		n.Storage.Delman(h, models.Bucketvirtual)
+	}
+}

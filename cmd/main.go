@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -38,6 +37,6 @@ func main() {
 
 	// 4. После того как сигнал пришел — выполняем завершающие действия
 	// Используем http.Client{} напрямую или создаем с таймаутом, чтобы не висеть вечно
-	app.Node.NodeBye(http.Client{})
+	// app.Node.NodeBye(http.Client{})
 
 }

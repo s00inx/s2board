@@ -11,12 +11,14 @@ import (
 	"path/filepath"
 
 	"github.com/s00inx/s2board/internal/models"
+	"github.com/s00inx/s2board/internal/network"
 )
+
+// frontend endpoints
 
 // GET /api/list : получить список всех хешей в локальной сети
 func (a *App) listallh(w http.ResponseWriter, r *http.Request) {
 	mlist := a.st.GetManlist()
-
 	json.NewEncoder(w).Encode(mlist)
 }
 
@@ -35,8 +37,7 @@ func (a *App) helloh(w http.ResponseWriter, r *http.Request) {
 // POST /api/fetch : получить список манифестов по списку хешей
 func (a *App) fetchh(w http.ResponseWriter, r *http.Request) {
 	var hashes []string
-	err := json.NewDecoder(r.Body).Decode(&hashes)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&hashes); err != nil {
 		log.Printf("[ERR] fetch: failed to decode JSON: %v", err)
 		http.Error(w, "invalid json body", http.StatusBadRequest)
 		return
@@ -95,43 +96,19 @@ func (a *App) hasfh(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-
 	w.WriteHeader(200)
 }
 
-// GET /api/bye/{peer_id} : обработать отключение конкретного пира
-func (a *App) byeh(w http.ResponseWriter, r *http.Request) {
-	pid := r.PathValue("peer_id")
-
-	a.Node.RecvBye(pid)
-	log.Printf("peer %s is unavailable now", pid[:8])
-}
-
-// POST /api/recv : получить манифест от другого пира
-func (a *App) recvh(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		Peer models.Peer     `json:"peer"`
-		Man  models.Manifest `json:"manifest"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-
-	// Обрабатываем манифест (сохранение в virtual, авто-загрузка и т.д.)
-	if err := a.Node.Recvf(payload.Peer, &payload.Man); err != nil {
-		log.Printf("[ERR] Recvf error: %v", err)
-		http.Error(w, "process error", 500)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
+// GET /api/me
+func (a *App) meh(w http.ResponseWriter, r *http.Request) {
+	json.NewEncoder(w).Encode(map[string]string{
+		"uid":  a.Node.UID,
+		"name": a.Node.PubName,
+	})
 }
 
 // POST /api/create : создать новую заметку (multipart form)
 func (a *App) createh(w http.ResponseWriter, r *http.Request) {
-	// 1. Парсим форму
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, "form error", http.StatusBadRequest)
 		return
@@ -148,14 +125,11 @@ func (a *App) createh(w http.ResponseWriter, r *http.Request) {
 	var man *models.Manifest
 	var err error
 
-	// 2. Пробуем получить файл
 	file, header, fileErr := r.FormFile("file")
 
 	switch fileErr {
 	case nil:
-		// --- СЛУЧАЙ С ФАЙЛОМ ---
 		defer file.Close()
-
 		tempPath := filepath.Join(os.TempDir(), header.Filename)
 		out, err := os.Create(tempPath)
 		if err != nil {
@@ -175,35 +149,24 @@ func (a *App) createh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		log.Printf("[ERR] Create failed: %v", err)
+		log.Printf("[ERR] create failed: %v", err)
 		http.Error(w, "failed to create manifest", 500)
 		return
 	}
 
-	// Рассылаем всем
-	go a.Node.Broadcast(man, models.BroadcastSave)
+	bcpacket := a.Node.NewBCp(man, models.Actsave)
+	go a.Node.Broadcast(bcpacket)
 
 	w.WriteHeader(http.StatusOK)
 }
 
-// GET /api/getpeers : посмотреть список всех пиров в локальной сети
-func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
-	conns := a.Node.GetConns()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(conns)
-}
-
-// POST /api/del : удалить манифест у себя и разослать всем
+// POST /api/del : фронтенд просит удалить манифест
 func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Mhash      string `json:"hash"`
-		AuthorHash string `json:"author"`
+		Mhash string `json:"hash"`
 	}
 
-	// man hash for deletion, author hash for security
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("eror: %s", err)
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -215,12 +178,8 @@ func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.AuthorHash != man.AuthorUID {
-		w.WriteHeader(http.StatusForbidden)
-		return
-	}
-
-	go a.Node.Broadcast(man, models.BroadcastDel)
+	bcpacket := a.Node.NewBCp(man, models.Actdel)
+	go a.Node.Broadcast(bcpacket)
 
 	err = a.Node.RmNote(req.Mhash)
 	if err != nil {
@@ -230,10 +189,72 @@ func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GET /api/me
-func (a *App) meh(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{
-		"uid":  a.Node.UID,
-		"name": a.Node.PubName,
-	})
+// GET /api/getpeers : посмотреть список всех пиров в локальной сети
+func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
+	conns := a.Node.GetConns()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(conns); err != nil {
+		log.Printf("[ERR] failed to encode peers: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+}
+
+// network endpoints
+
+// POST /api/p2p : Единый вход для всех сетевых пакетов
+func (a *App) p2phandler(w http.ResponseWriter, r *http.Request) {
+	var pk network.BCPacket
+	if err := json.NewDecoder(r.Body).Decode(&pk); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if !pk.Verify() {
+		log.Printf("[p2p] invalid signature from %s -> denied", pk.Senderuid[:8])
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	switch pk.Action {
+	case models.Actsave:
+		var man models.Manifest
+		if err := json.Unmarshal(pk.Payload, &man); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		peer := models.Peer{UID: pk.Senderuid}
+		if err := a.Node.Recvf(peer, &man); err != nil {
+			log.Printf("[p2p] error saving manifest: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+	case models.Actdel:
+		var man models.Manifest
+		if err := json.Unmarshal(pk.Payload, &man); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		if pk.Senderuid != man.AuthorUID {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		a.Node.RmNote(man.Hash)
+		log.Printf("[p2p] note %s deleted", man.Hash[:8])
+
+	case models.Actbye:
+		a.Node.ForgetPeer(pk.Senderuid)
+		log.Printf("[p2p] peer %s disconnected", pk.Senderuid[:8])
+
+	default:
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

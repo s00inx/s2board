@@ -109,7 +109,7 @@
             const r = await fetch('/api/del', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ hash: hash, author: myUID })
+                body: JSON.stringify({ hash: hash })
             });
             if (r.ok) loadFeed();
             else alert("Ошибка: возможно, вы не автор этой записи.");

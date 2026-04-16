@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	mindlsize = 25 * 1 << 20
+	mindlsize = 1
+	// mindlsize = 25 * 1 << 20
 )
 
 type fpeermap struct {
@@ -40,9 +41,11 @@ func (fm *fpeermap) add(hash string, peer models.Peer) {
 	fm.d[hash] = append(fm.d[hash], peer.UID)
 }
 
-func (fm *fpeermap) rmpeer(peerid string) {
+func (fm *fpeermap) rm(peerid string) []string {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
+
+	var emptyh []string
 
 	for hash, ps := range fm.d {
 		nps := ps[:0]
@@ -54,9 +57,11 @@ func (fm *fpeermap) rmpeer(peerid string) {
 		fm.d[hash] = nps
 
 		if len(nps) == 0 {
+			emptyh = append(emptyh, hash)
 			delete(fm.d, hash)
 		}
 	}
+	return emptyh
 }
 
 func (fm *fpeermap) getpeerlist(hash string) ([]string, bool) {
@@ -69,6 +74,7 @@ func (fm *fpeermap) getpeerlist(hash string) ([]string, bool) {
 
 // интерфейс для локального хранилища конкретной ноды
 type nodeStorage interface {
+	GetManlist() []models.Manifest
 	// сохранить на диск в datadir
 	Save2disk(src string) (string, int64, error)
 	// сохранить в запись бд в нужный бакет
@@ -139,7 +145,7 @@ func (n *Node) Uploadf(src, title, desc string) (*models.Manifest, error) {
 // receive file from net -> process
 func (n *Node) Recvf(p models.Peer, man *models.Manifest) error {
 	// 1: to file peers map
-	n.fpeers.add(man.FileHash, p)
+	n.filepeers.add(man.FileHash, p)
 
 	// 2: save to 'virtual' bucket ANYWAY \
 	// if file is already exists, data will update.
@@ -176,16 +182,16 @@ func (n *Node) Recvf(p models.Peer, man *models.Manifest) error {
 // ask all available peers about file
 // (special endpoint for scalability)
 func (n *Node) askpeers(fhash string) {
-	n.peermap.mu.Lock()
-	peers := n.peermap.d
-	n.peermap.mu.Unlock()
+	n.peers.mu.Lock()
+	peers := n.peers.d
+	n.peers.mu.Unlock()
 
 	for _, peer := range peers {
 		go func(p models.Peer) {
 			url := fmt.Sprintf("http://%s:%d/api/hasf/%s", p.IP, p.Port, fhash)
 			resp, err := n.client.Get(url)
 			if err == nil && resp.StatusCode == http.StatusOK {
-				n.fpeers.add(fhash, p)
+				n.filepeers.add(fhash, p)
 				log.Printf("[found] file %s also available on %s", fhash[:8], p.IP)
 			}
 			if resp != nil {
@@ -203,13 +209,13 @@ func (n *Node) Dlf(fhash string) (io.ReadCloser, error) {
 	}
 
 	// 2: ищем в пир-мапе
-	hostl, ok := n.fpeers.getpeerlist(fhash)
+	hostl, ok := n.filepeers.getpeerlist(fhash)
 	if !ok || len(hostl) == 0 {
 		return nil, fmt.Errorf("no peers found for hash %s", fhash[:8])
 	}
 
 	for _, fpeerid := range hostl {
-		fpeer, ok := n.peermap.d[fpeerid]
+		fpeer, ok := n.peers.d[fpeerid]
 		if !ok {
 			continue
 		}
@@ -219,7 +225,7 @@ func (n *Node) Dlf(fhash string) (io.ReadCloser, error) {
 		resp, err := n.client.Get(dsturlp)
 		if err != nil {
 			log.Printf("[proxy] peer %s error: %v", fpeerid[:8], err)
-			n.Forget(fpeerid)
+			n.ForgetPeer(fpeerid)
 			continue
 		}
 
