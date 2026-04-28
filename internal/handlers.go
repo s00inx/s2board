@@ -7,18 +7,18 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 
 	"github.com/s00inx/s2board/internal/models"
 	"github.com/s00inx/s2board/internal/network"
 )
 
 // frontend endpoints
+// RU: ниже расписана логика работы и почему была выбрана именно она
+// фронтенд просто берет записи у бекенда, так что логично что тут только GET
 
 // GET /api/list : получить список всех хешей в локальной сети
 func (a *App) listallh(w http.ResponseWriter, r *http.Request) {
-	mlist := a.st.GetManlist()
+	mlist := a.internalst.GetManList()
 	json.NewEncoder(w).Encode(mlist)
 }
 
@@ -72,7 +72,7 @@ func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.Close()
 
-	man, _ := a.Node.Storage.Getmanfh(hval, models.Bucketvirtual)
+	man, _ := a.Node.DbStorage.GetManfh(hval, models.Bucketvirtual)
 	if man != nil {
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+url.PathEscape(man.Title)+"\"")
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", man.FileSize))
@@ -92,7 +92,7 @@ func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
 func (a *App) hasfh(w http.ResponseWriter, r *http.Request) {
 	hashval := r.PathValue("hash")
 
-	if !a.Node.Storage.FileExists(hashval) {
+	if !a.Node.FileStorage.FileExists(hashval) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -109,84 +109,84 @@ func (a *App) meh(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/create : создать новую заметку (multipart form)
 func (a *App) createh(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, "form error", http.StatusBadRequest)
-		return
-	}
+	// if err := r.ParseMultipartForm(32 << 20); err != nil {
+	// 	http.Error(w, "form error", http.StatusBadRequest)
+	// 	return
+	// }
 
-	title := r.FormValue("title")
-	desc := r.FormValue("desc")
-	author := r.FormValue("author")
+	// title := r.FormValue("title")
+	// desc := r.FormValue("desc")
+	// author := r.FormValue("author")
 
-	if author == "" {
-		author = a.cfg.Name
-	}
+	// if author == "" {
+	// 	author = a.cfg.Name
+	// }
 
-	var man *models.Manifest
-	var err error
+	// // var man *models.Manifest
+	// var err error
 
-	file, header, fileErr := r.FormFile("file")
+	// file, header, fileErr := r.FormFile("file")
 
-	switch fileErr {
-	case nil:
-		defer file.Close()
-		tempPath := filepath.Join(os.TempDir(), header.Filename)
-		out, err := os.Create(tempPath)
-		if err != nil {
-			http.Error(w, "internal error", 500)
-			return
-		}
-		io.Copy(out, file)
-		out.Close()
-		defer os.Remove(tempPath)
+	// switch fileErr {
+	// case nil:
+	// 	defer file.Close()
+	// 	tempPath := filepath.Join(os.TempDir(), header.Filename)
+	// 	out, err := os.Create(tempPath)
+	// 	if err != nil {
+	// 		http.Error(w, "internal error", 500)
+	// 		return
+	// 	}
+	// 	io.Copy(out, file)
+	// 	out.Close()
+	// 	defer os.Remove(tempPath)
 
-		man, err = a.Node.Uploadf(tempPath, title, desc)
-	case http.ErrMissingFile:
-		man, err = a.Node.Uploadf("", title, desc)
-	default:
-		http.Error(w, "bad file", http.StatusBadRequest)
-		return
-	}
+	// 	// man, err = a.Node.Uploadf(tempPath, title, desc)
+	// case http.ErrMissingFile:
+	// 	// man, err = a.Node.Uploadf("", title, desc)
+	// default:
+	// 	http.Error(w, "bad file", http.StatusBadRequest)
+	// 	return
+	// }
 
-	if err != nil {
-		log.Printf("[ERR] create failed: %v", err)
-		http.Error(w, "failed to create manifest", 500)
-		return
-	}
+	// if err != nil {
+	// 	log.Printf("[ERR] create failed: %v", err)
+	// 	http.Error(w, "failed to create manifest", 500)
+	// 	return
+	// }
 
-	bcpacket := a.Node.NewBCp(man, models.Actsave)
-	go a.Node.Broadcast(bcpacket)
+	// bcpacket := models.NewBCp(man, models.Actsave, a.Node.UID, a.Node.PrivateK)
+	// go a.Node.Broadcast(bcpacket)
 
-	w.WriteHeader(http.StatusOK)
+	// w.WriteHeader(http.StatusOK)
 }
 
 // POST /api/del : фронтенд просит удалить манифест
 func (a *App) delh(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Mhash string `json:"hash"`
-	}
+	// var req struct {
+	// 	Mhash string `json:"hash"`
+	// }
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
+	// if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// 	http.Error(w, "invalid JSON", http.StatusBadRequest)
+	// 	return
+	// }
+	// defer r.Body.Close()
 
-	man, err := a.Node.Storage.Getmanh(req.Mhash, models.Bucketvirtual)
-	if err != nil || man == nil {
-		http.Error(w, "manifest not found", http.StatusNotFound)
-		return
-	}
+	// man, err := a.Node.DbStorage.GetManh(req.Mhash, models.Bucketvirtual)
+	// if err != nil || man == nil {
+	// 	http.Error(w, "manifest not found", http.StatusNotFound)
+	// 	return
+	// }
 
-	bcpacket := a.Node.NewBCp(man, models.Actdel)
-	go a.Node.Broadcast(bcpacket)
+	// bcpacket := models.NewBCp(man, models.Actsave, a.Node.UID, a.Node.PrivateK)
+	// go a.Node.Broadcast(bcpacket)
 
-	err = a.Node.RmNote(req.Mhash)
-	if err != nil {
-		log.Printf("[del] error removing %s: %v", req.Mhash[:8], err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
+	// err = a.Node.RmNote(req.Mhash)
+	// if err != nil {
+	// 	log.Printf("[del] error removing %s: %v", req.Mhash[:8], err)
+	// 	w.WriteHeader(http.StatusInternalServerError)
+	// 	return
+	// }
 }
 
 // GET /api/getpeers : посмотреть список всех пиров в локальной сети
@@ -201,22 +201,29 @@ func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// network endpoints
+// p2p endpoint
+// RU: в mvp для транспорта был выбран именно HTTP потому что он прост в отладке, но влечет за собой оверхед
+// на заголовки и json, также я использовал только Push на бекенде, Pull оставил только для фронтенда,
+// это просто упрощение, в p2p сетях лучше использовать только Push!
+// за всю п2п логику отвечает именно 1 эндпоинт /api/p2p, только POST (нет смысла следовать rest)
+// todo: сделать бинарный протокол поверх udp
 
-// POST /api/p2p : Единый вход для всех сетевых пакетов
+// all p2p Push logic
 func (a *App) p2phandler(w http.ResponseWriter, r *http.Request) {
-	var pk network.BCPacket
+	// decode broadcast packet from request
+	var pk models.BCPacket
+
 	if err := json.NewDecoder(r.Body).Decode(&pk); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-
 	if !pk.Verify() {
 		log.Printf("[p2p] invalid signature from %s -> denied", pk.Senderuid[:8])
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
 
+	// process packet payload based on action
 	switch pk.Action {
 	case models.Actsave:
 		var man models.Manifest
@@ -225,7 +232,7 @@ func (a *App) p2phandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		peer := models.Peer{UID: pk.Senderuid}
+		peer := *network.NewPeer(pk.Senderuid)
 		if err := a.Node.Recvf(peer, &man); err != nil {
 			log.Printf("[p2p] error saving manifest: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)

@@ -9,21 +9,19 @@ import (
 	"os"
 )
 
-// node is abstrcation above THIS exact device in the network
+// node is abstraction above THIS device in the network
 type Node struct {
-	PublicK  ed25519.PublicKey
-	PrivateK ed25519.PrivateKey
-	UID      string
-
-	IP      string
-	Port    int
-	PubName string
-
-	Storage nodeStorage
-	client  http.Client
-
-	peers     *peermap
-	filepeers *fpeermap
+	PublicK     ed25519.PublicKey
+	PrivateK    ed25519.PrivateKey
+	UID         string
+	IP          string
+	Port        int
+	PubName     string
+	DbStorage   nodeInternalStorage
+	FileStorage nodeExternalStorage
+	client      http.Client
+	peers       *peermap
+	filepeers   *fpeermap
 }
 
 func ConnNode(prkpath string, port int, name string) (*Node, error) {

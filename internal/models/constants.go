@@ -18,5 +18,6 @@ type Actcode uint8
 const (
 	Actsave Actcode = iota + 1
 	Actdel
+	Acthello
 	Actbye
 )

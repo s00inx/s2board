@@ -10,9 +10,6 @@ import (
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// !!: mdns требует настройки avahi на линукс (ну либо можно просто sudo systemctl disable avahi-daemon.service для systemd))
-// на windows 10+ и macOS запустится нативно потому что они поддерживают эту технологию из коробки
-
 func InitMdns(ip *net.Interface, uid, name string, port int) (string, *zeroconf.Server, error) {
 	if ip == nil {
 		return "", nil, fmt.Errorf("can't find any valid net interface, please connect to hotspot")
@@ -70,6 +67,6 @@ func (n *Node) ForgetPeer(peeruid string) {
 	n.peers.rm(peeruid)
 
 	for _, h := range h2del {
-		n.Storage.Delman(h, models.Bucketvirtual)
+		n.DbStorage.DeleteMan(h, models.Bucketvirtual)
 	}
 }

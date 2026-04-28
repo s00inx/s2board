@@ -10,26 +10,17 @@ import (
 )
 
 type Manifest struct {
-	// public info
-	Title     string `json:"title"`
-	Desc      string `json:"desc"`
-	Timestamp int64  `json:"ts"`
-	Version   int64  `json:"ver"`
-
-	// file info (optional if note has file)
-	FileHash string `json:"filehash,omitempty"`
-	FileName string `json:"filename,omitempty"`
-	FileSize int64  `json:"size"`
-
-	// node info
+	Title      string `json:"title"`
+	Desc       string `json:"desc"`
+	Timestamp  int64  `json:"ts"`
+	Version    int64  `json:"ver"`
+	FileHash   string `json:"filehash,omitempty"`
+	FileName   string `json:"filename,omitempty"`
+	FileSize   int64  `json:"size"`
 	AuthorUID  string `json:"author"`
 	AuthorName string `json:"author_name"`
-
-	// manifest private info
-	Hash      string `json:"hash"`
-	Signature string `json:"sig"`
-
-	_ [8]byte
+	Hash       string `json:"hash"`
+	Signature  string `json:"sig"`
 }
 
 // make new manifest with file
@@ -45,11 +36,6 @@ func NewMan(title, desc, auuid, auname, fhash, fname string, fsize int64) *Manif
 		Timestamp:  time.Now().Unix(),
 		Version:    1,
 	}
-}
-
-// fast func to create manifest with no file`
-func NewMannofile(title, desc, uid, name string) *Manifest {
-	return NewMan(title, desc, uid, name, "", "", 0)
 }
 
 // struct for safe calculating hash

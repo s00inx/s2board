@@ -11,54 +11,54 @@ import (
 	"github.com/s00inx/s2board/internal/storage"
 )
 
-// конфиг это абстракция для удобной настройки приложения
 type Config struct {
-	DataDir string // где лежат бд и блобы
-	Port    int    // порт веб-сервера
-	Name    string // имя ноды (по желанию)
+	DataDir string
+	Port    int
+	Name    string
 }
 
-// главная абстаркция над всем сервисом, инкапсулирует логику ноды и хранилища
 type App struct {
-	Node *network.Node
-	st   *storage.Storage
-	cfg  *Config
+	Node       *network.Node
+	internalst *storage.InternalStorage
+	extst      *storage.ExternalStorage
+	cfg        *Config
 }
 
-// создает экземпляр приложения и подготавливает зависимости
 func NewApp(cfg *Config) *App {
 	return &App{
 		cfg: cfg,
 	}
 }
 
-// точка входа, что запускает все сетевые и системные процессы
 func (a *App) Run() {
-	st, err := storage.Init(a.cfg.DataDir)
+	// init storage, find or create deps
+	ist, est, err := storage.Init(a.cfg.DataDir)
 	if err != nil {
 		log.Fatal("storage init error: ", err)
 	}
-	a.st = st
+	a.internalst = ist
+	a.extst = est
 
-	Node, err := network.ConnNode(filepath.Join(st.Dir, "node.key"), a.cfg.Port, a.cfg.Name)
+	// setup node on this device
+	Node, err := network.ConnNode(filepath.Join(est.Dir, "node.key"), a.cfg.Port, a.cfg.Name)
 	if err != nil {
 		log.Fatal("[FATAL] node connect error: ", err)
 	}
-	Node.Storage = st
-
+	Node.DbStorage = ist
+	Node.FileStorage = est
 	a.Node = Node
 
-	a.Node.Storage.CleanVirtual()
-	a.Node.Storage.RepubLocal()
+	// cleanup node local databases
+	a.Node.DbStorage.Cleanvb()
+	a.Node.DbStorage.InitLocal()
 
+	// get a net interface to link node <-> interface
 	liface, ipstr := network.GetLocalIface()
 	if liface == nil {
 		log.Println("[WARN] could not find valid net interface, using localhost")
 	}
-	url := fmt.Sprintf("http://%s:%d", ipstr, a.cfg.Port)
 
-	go a.Node.Discover(context.Background()) // поиск соседей
-
+	// setup mDns for local node discovery
 	nm, mdnsrv, err := network.InitMdns(liface, a.Node.UID, a.cfg.Name, a.cfg.Port)
 	if err != nil {
 		log.Println("[WARN] mDNS registration failed: ", err)
@@ -66,12 +66,18 @@ func (a *App) Run() {
 		defer mdnsrv.Shutdown()
 	}
 
+	// setup node in local network
+	go a.Node.Discover(context.Background())
+
+	// print debug information
+	url := fmt.Sprintf("http://%s:%d", ipstr, a.cfg.Port)
 	fmt.Printf("\nservice is STARTED...\n")
 	fmt.Printf("node UID: %s\n", a.Node.UID[:16])
 	fmt.Printf("local UI: %s\n", url)
 	fmt.Printf("local IP: %s:%d\n", nm, a.cfg.Port)
-
 	mux := a.setupRoutes()
+
+	// up node server on :port for routing (http REST api)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", a.cfg.Port), mux))
 }
 

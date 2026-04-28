@@ -1,6 +1,4 @@
-// все что касается внутренней бд
-// !!: здесь може быть любая бд, выбран бболт из-за скорости и безопасности данных (но можно использовать и sql, все что угодно)
-// см. network/node -> nodeStorage
+// intenal database logic
 package storage
 
 import (
@@ -13,14 +11,12 @@ import (
 	"go.etcd.io/bbolt"
 )
 
-// есть 2 бакета (таблицы) -
-// 1: локальные файлы - те, которые лежат на диске (меняется ток при сохранении на диск, только внутри программы)
-// 2: вся доска с манифестами - меняется при синхронизации и отдается на фронтенд
+// RU: есть 2 бакета (таблицы) -
+//     1: локальные файлы - те, которые лежат на диске (меняется ток при сохранении на диск, только внутри программы)
+//     2: вся доска с манифестами - меняется при синхронизации и отдается на фронтенд
 
-// сохранить файл в бд в:
-// local (когда сохраняем 100% на диске)
-// virtual (все манифесты сюда)
-func (s *Storage) Save2db(man models.Manifest, bucket string) error {
+// save file to internal database
+func (s *InternalStorage) Save2db(man models.Manifest, bucket string) error {
 	if bucket != models.Bucketlocal && bucket != models.Bucketvirtual {
 		return errors.New("[DB] invalid bucket")
 	}
@@ -47,7 +43,7 @@ func (s *Storage) Save2db(man models.Manifest, bucket string) error {
 	})
 }
 
-func (s *Storage) Getmanh(hash string, bucket string) (*models.Manifest, error) {
+func (s *InternalStorage) GetManh(hash string, bucket string) (*models.Manifest, error) {
 	var m models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
@@ -67,8 +63,7 @@ func (s *Storage) Getmanh(hash string, bucket string) (*models.Manifest, error) 
 	return &m, err
 }
 
-// взять манифест из бд по хешу файла (для этого пользуемся доп. индексами)
-func (s *Storage) Getmanfh(fhash string, bucket string) (*models.Manifest, error) {
+func (s *InternalStorage) GetManfh(fhash string, bucket string) (*models.Manifest, error) {
 	var m models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
@@ -96,7 +91,7 @@ func (s *Storage) Getmanfh(fhash string, bucket string) (*models.Manifest, error
 	return &m, err
 }
 
-func (s *Storage) Delman(hash string, bucket string) (string, error) {
+func (s *InternalStorage) DeleteMan(hash string, bucket string) (string, error) {
 	var fh string
 
 	err := s.DB.Update(func(tx *bbolt.Tx) error {
@@ -134,7 +129,7 @@ func (s *Storage) Delman(hash string, bucket string) (string, error) {
 
 // получить все хеши для синхронизации, берем из локальной бд.
 // (так как это для синка, то есть интересуют тока те записи, которыми нода может поделиться)
-func (s *Storage) GetHashesList() ([]string, error) {
+func (s *InternalStorage) GetHashesList() ([]string, error) {
 	var hashes []string
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
@@ -155,7 +150,7 @@ func (s *Storage) GetHashesList() ([]string, error) {
 	return hashes, nil
 }
 
-func (s *Storage) HasNote(hash string) bool {
+func (s *InternalStorage) NoteExist(hash string) bool {
 	var exists bool
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
@@ -178,7 +173,7 @@ func (s *Storage) HasNote(hash string) bool {
 	return exists
 }
 
-func (s *Storage) GetManlist() []models.Manifest {
+func (s *InternalStorage) GetManList() []models.Manifest {
 	var manlist []models.Manifest
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
@@ -207,7 +202,7 @@ func (s *Storage) GetManlist() []models.Manifest {
 	return manlist
 }
 
-func (s *Storage) CleanVirtual() error {
+func (s *InternalStorage) Cleanvb() error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
 		err := tx.DeleteBucket([]byte(models.Bucketvirtual))
 		if err != nil {
@@ -224,7 +219,7 @@ func (s *Storage) CleanVirtual() error {
 	})
 }
 
-func (s *Storage) RepubLocal() error {
+func (s *InternalStorage) InitLocal() error {
 	return s.DB.Update(func(tx *bbolt.Tx) error {
 		local := tx.Bucket([]byte(models.Bucketlocal))
 		if local == nil {

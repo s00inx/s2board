@@ -12,24 +12,25 @@ const (
 	dbname = "s2.db"
 )
 
-// Storage должен удовлетворять интерфейсу nodeStorage из network
-type Storage struct {
-	DB          *bbolt.DB // ссылка на экземпляр бд
-	Dir         string    // директория с файлами и ключами (../data по дефолту)
-	BlobDirName string
+type InternalStorage struct {
+	DB *bbolt.DB
+}
+
+type ExternalStorage struct {
+	Dir      string
+	BlobsDir string
 }
 
 // инициализировать новый экземпляр стораджа, нужно вызвать 1 раз при инициализации сервиса,
 // в качестве параметра указываем базовую директорию
-func Init(dir string) (*Storage, error) {
+func Init(dir string) (*InternalStorage, *ExternalStorage, error) {
 	os.MkdirAll(dir, 0755)
 
 	db, err := bbolt.Open(filepath.Join(dir, dbname), 0600, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// создаем бакет для манифестов файлов которые уже есть на диске (хеш манифеста : манифест)
 	err = db.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(models.Bucketlocal))
 		if err != nil {
@@ -45,5 +46,5 @@ func Init(dir string) (*Storage, error) {
 		return err
 	})
 
-	return &Storage{Dir: dir, DB: db}, nil
+	return &InternalStorage{DB: db}, &ExternalStorage{Dir: dir}, nil
 }

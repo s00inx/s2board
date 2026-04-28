@@ -4,40 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/grandcat/zeroconf"
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// active peers in local network / map[uid]peer
-type peermap struct {
-	d  map[string]models.Peer
-	mu sync.Mutex
-}
-
-func newpeermap() *peermap {
-	return &peermap{
-		d: make(map[string]models.Peer, 0),
-	}
-}
-
-func (pm *peermap) add(p models.Peer) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	pm.d[p.UID] = p
-}
-
-func (pm *peermap) rm(uid string) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	delete(pm.d, uid)
-}
-
-// start mdns node discovering
+// mDns local net discovering
 func (n *Node) Discover(ctx context.Context) {
 	rs, err := zeroconf.NewResolver(nil)
 	if err != nil {
@@ -45,6 +18,7 @@ func (n *Node) Discover(ctx context.Context) {
 		return
 	}
 
+	// create entry channel
 	en := make(chan *zeroconf.ServiceEntry)
 	go func() {
 		for {
@@ -56,15 +30,18 @@ func (n *Node) Discover(ctx context.Context) {
 					return
 				}
 
+				// parse IP fields of zeroconf entry
 				var targetip string
+				// first ipv4
 				if len(entry.AddrIPv4) > 0 {
 					targetip = entry.AddrIPv4[0].String()
-				} else if len(entry.AddrIPv6) > 0 {
+				} else if len(entry.AddrIPv6) > 0 { // then ipv6 bc it may be incompatible
 					targetip = fmt.Sprintf("[%s]", entry.AddrIPv6[0].String())
 				} else {
 					continue
 				}
 
+				// parse text fields
 				var uid, pname string
 				for _, f := range entry.Text {
 					if len(f) > 4 && f[:4] == "uid=" {
@@ -79,14 +56,12 @@ func (n *Node) Discover(ctx context.Context) {
 					continue
 				}
 				if pname == "" {
-					pname = "anonymous"
+					pname = "anonymous_peer"
 				}
 
-				n.peers.mu.Lock()
-				oldp, exists := n.peers.d[uid]
-				n.peers.mu.Unlock()
+				oldp, exists := n.peers.getpeer(uid)
 
-				newpeer := models.Peer{
+				newpeer := Peer{
 					UID:      uid,
 					Name:     pname,
 					IP:       targetip,
@@ -98,7 +73,7 @@ func (n *Node) Discover(ctx context.Context) {
 
 				if !exists || time.Since(oldp.LastSeen) > 1*time.Minute {
 					log.Printf("[disc] found peer %s (%s:%d)", pname, targetip, entry.Port)
-					go func(p models.Peer) {
+					go func(p Peer) {
 						time.Sleep(1 * time.Second)
 						n.Syncw(p)
 					}(newpeer)
@@ -114,11 +89,11 @@ func (n *Node) Discover(ctx context.Context) {
 }
 
 // get available peers
-func (n *Node) GetConns() []models.Peer {
+func (n *Node) GetConns() []Peer {
 	n.peers.mu.Lock()
 	defer n.peers.mu.Unlock()
 
-	plist := make([]models.Peer, 0, len(n.peers.d))
+	plist := make([]Peer, 0, len(n.peers.d))
 	for _, v := range n.peers.d {
 		plist = append(plist, v)
 	}

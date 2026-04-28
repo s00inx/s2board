@@ -1,0 +1,48 @@
+package models
+
+import (
+	"crypto/ed25519"
+	"encoding/hex"
+)
+
+// RU: единая структура пакета позволяет инкапсулировать его в ЛЮБОЙ протокол, в том числе бинарный.
+//     в качестве упрощения для MVP был выбран http.
+
+// unified broadcast packet above tcp for scalable file sharing
+type BCPacket struct {
+	Action    Actcode `json:"action"`
+	Senderuid string  `json:"sender"`
+	Payload   []byte  `json:"payload"`
+	Signature string  `json:"sig"`
+}
+
+// build a new packet for broadcast
+func NewBCp(payload []byte, action Actcode, nodeuid string, privk ed25519.PrivateKey) *BCPacket {
+	pk := BCPacket{
+		Senderuid: nodeuid,
+		Payload:   payload,
+		Action:    Actcode(action),
+	}
+
+	// sign: man json + action
+	hdata := append(payload, byte(action))
+	pk.Signature = hex.EncodeToString(ed25519.Sign(privk, hdata))
+
+	return &pk
+}
+
+// verify packet (authencity and integrity)
+func (p *BCPacket) Verify() bool {
+	pub, err := hex.DecodeString(p.Senderuid)
+	if err != nil || len(pub) != ed25519.PublicKeySize {
+		return false
+	}
+
+	sig, err := hex.DecodeString(p.Signature)
+	if err != nil {
+		return false
+	}
+
+	hdata := append(p.Payload, byte(p.Action))
+	return ed25519.Verify(pub, hdata, sig)
+}

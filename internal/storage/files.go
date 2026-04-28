@@ -10,19 +10,19 @@ import (
 )
 
 // file hash -> dir with file
-func (s *Storage) Fhash2dir(fhash string) string {
+func (s *ExternalStorage) Fhash2dir(fhash string) string {
 	shard := fhash[:2]
-	return filepath.Join(s.Dir, s.BlobDirName, shard)
+	return filepath.Join(s.Dir, s.BlobsDir, shard)
 }
 
 // file hash -> path to file
-func (s *Storage) Fhash2path(fhash string) string {
+func (s *ExternalStorage) Fhash2path(fhash string) string {
 	shard := fhash[:2]
-	return filepath.Join(s.Dir, s.BlobDirName, shard, fhash)
+	return filepath.Join(s.Dir, s.BlobsDir, shard, fhash)
 }
 
 // save file with his hash (hard link or copy)
-func (s *Storage) savetopath(file *os.File, src string) (string, error) {
+func (s *ExternalStorage) savetopath(file *os.File, src string) (string, error) {
 	hehash := sha256.New()
 	if _, err := io.Copy(hehash, file); err != nil {
 		return "", err
@@ -53,7 +53,7 @@ func (s *Storage) savetopath(file *os.File, src string) (string, error) {
 }
 
 // save file to disk
-func (s *Storage) Save2disk(src string) (string, int64, error) {
+func (s *ExternalStorage) Save2disk(src string) (string, int64, error) {
 	file, err := os.Open(src)
 	if err != nil {
 		return "", 0, err
@@ -73,7 +73,7 @@ func (s *Storage) Save2disk(src string) (string, int64, error) {
 }
 
 // download local file
-func (s *Storage) SaveBlob(fhash string, r io.Reader) error {
+func (s *ExternalStorage) SaveFile(fhash string, r io.Reader) error {
 	tpath := s.Fhash2path(fhash)
 	os.MkdirAll(filepath.Dir(tpath), 0755)
 
@@ -88,7 +88,7 @@ func (s *Storage) SaveBlob(fhash string, r io.Reader) error {
 }
 
 // delete file from local storage
-func (s *Storage) Delfile(fhash string) error {
+func (s *ExternalStorage) DeleteFile(fhash string) error {
 	target := s.Fhash2path(fhash)
 
 	if err := os.Remove(target); err != nil {
@@ -102,7 +102,7 @@ func (s *Storage) Delfile(fhash string) error {
 }
 
 // check if file exist in local storage
-func (s *Storage) FileExists(fhash string) bool {
+func (s *ExternalStorage) FileExists(fhash string) bool {
 	_, err := os.Stat(s.Fhash2path(fhash))
 	return err == nil
 }

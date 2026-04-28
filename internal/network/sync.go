@@ -1,5 +1,5 @@
-// синхронизация конкретной ноды с другими в этой же локальной сети
-// получить ВСЕ хеши -> сравнить -> запросить манифесты -> проверить -> сохранить
+// all sync nodes in local network logic
+// hello and bye packets
 package network
 
 import (
@@ -13,7 +13,7 @@ import (
 
 // get list if all hashes
 func (n *Node) GetHashes() ([]string, error) {
-	return n.Storage.GetHashesList()
+	return n.DbStorage.GetHashesList()
 }
 
 // принимает список хешей и отдает полные манифесты
@@ -25,7 +25,7 @@ func (n *Node) FetchManifests(hashes []string) ([]models.Manifest, error) {
 	}
 
 	for _, h := range hashes {
-		man, err := n.Storage.Getmanh(h, models.Bucketvirtual)
+		man, err := n.DbStorage.GetManh(h, models.Bucketvirtual)
 		if err == nil && man != nil {
 			res = append(res, *man)
 		}
@@ -34,22 +34,28 @@ func (n *Node) FetchManifests(hashes []string) ([]models.Manifest, error) {
 	return res, nil
 }
 
-// sync node and peer
-func (n *Node) Syncw(p models.Peer) error {
-	// ask peer about its 'local' hashes
+// symmetric sync node and EXACT peer (args: peer and hash list)
+func (n *Node) Syncw(p Peer, hl2send []string) {
+	jd2send, err := json.Marshal(hl2send)
+	if err != nil {
+		return
+	}
+
+	hellop := models.NewBCp(jd2send, models.Acthello, n.UID, n.PrivateK)
+
 	resp, err := n.client.Get(fmt.Sprintf("http://%s:%d/api/hello", p.IP, p.Port))
 	if err != nil {
-		return err
+		return
 	}
 	defer resp.Body.Close()
 
 	var rem []string
 	if err := json.NewDecoder(resp.Body).Decode(&rem); err != nil {
-		return err
+		return
 	}
 	var missing []string
 	for _, h := range rem {
-		if !n.Storage.HasNote(h) {
+		if !n.DbStorage.NoteExist(h) {
 			missing = append(missing, h)
 		}
 	}
@@ -57,7 +63,7 @@ func (n *Node) Syncw(p models.Peer) error {
 	// if nothing is missed - end
 	if len(missing) == 0 {
 		log.Printf("[sync] peer %s -> nothing to sync", p.UID[:8])
-		return nil
+		return
 	}
 
 	log.Printf("[sync] peer %s: missing %d -> fetching", p.UID[:8], len(missing))
@@ -70,13 +76,13 @@ func (n *Node) Syncw(p models.Peer) error {
 		bytes.NewBuffer(body),
 	)
 	if err != nil {
-		return err
+		return
 	}
 	defer fresp.Body.Close()
 
 	var newmanl []models.Manifest
 	if err := json.NewDecoder(fresp.Body).Decode(&newmanl); err != nil {
-		return err
+		return
 	}
 
 	for _, man := range newmanl {
@@ -85,29 +91,30 @@ func (n *Node) Syncw(p models.Peer) error {
 			continue
 		}
 
-		if man.FileSize == 0 && !n.Storage.HasNote(man.Hash) {
-			if err := n.Storage.Save2db(man, models.Bucketlocal); err != nil {
-				return err
+		if man.FileSize == 0 && !n.DbStorage.NoteExist(man.Hash) {
+			if err := n.DbStorage.Save2db(man, models.Bucketlocal); err != nil {
+				return
 			}
 		}
 
-		if man.FileSize > 0 && !n.Storage.FileExists(man.FileHash) && man.FileSize < mindlsize {
+		if man.FileSize > 0 && !n.FileStorage.FileExists(man.FileHash) && man.FileSize < mindlsize {
 			err := n.DlFile(p, man.FileHash)
 
 			if err != nil {
 				log.Printf("[sync] failed to dl %s: %v -> ignored", man.FileHash[:8], err)
 			}
 			log.Printf("[sync] dl blob for note: %s -> ok", man.Title)
-			if err := n.Storage.Save2db(man, models.Bucketlocal); err != nil {
-				return err
+			if err := n.DbStorage.Save2db(man, models.Bucketlocal); err != nil {
+				return
 			}
+		} else {
+			n.filepeers.add(man.Hash, p)
 		}
 
-		if err := n.Storage.Save2db(man, models.Bucketvirtual); err != nil {
-			return err
+		if err := n.DbStorage.Save2db(man, models.Bucketvirtual); err != nil {
+			return
 		}
 	}
 
 	log.Printf("[sync] %s (%s) -> synced", p.Name, p.UID[:8])
-	return nil
 }
