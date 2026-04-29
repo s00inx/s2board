@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/grandcat/zeroconf"
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// mDns local net discovering
+// discover local net -> handshake
 func (n *Node) Discover(ctx context.Context) {
 	rs, err := zeroconf.NewResolver(nil)
 	if err != nil {
@@ -41,43 +40,8 @@ func (n *Node) Discover(ctx context.Context) {
 					continue
 				}
 
-				// parse text fields
-				var uid, pname string
-				for _, f := range entry.Text {
-					if len(f) > 4 && f[:4] == "uid=" {
-						uid = f[4:]
-					}
-					if len(f) > 5 && f[:5] == "name=" {
-						pname = f[5:]
-					}
-				}
-
-				if uid == "" || uid == n.UID {
-					continue
-				}
-				if pname == "" {
-					pname = "anonymous_peer"
-				}
-
-				oldp, exists := n.peers.getpeer(uid)
-
-				newpeer := Peer{
-					UID:      uid,
-					Name:     pname,
-					IP:       targetip,
-					Port:     entry.Port,
-					LastSeen: time.Now(),
-				}
-
-				n.peers.add(newpeer)
-
-				if !exists || time.Since(oldp.LastSeen) > 1*time.Minute {
-					log.Printf("[disc] found peer %s (%s:%d)", pname, targetip, entry.Port)
-					go func(p Peer) {
-						time.Sleep(1 * time.Second)
-						n.Syncw(p)
-					}(newpeer)
-				}
+				log.Printf("found peer on %s:%d", targetip, entry.Port)
+				go n.Handshakew(targetip, entry.Port, models.ActHello)
 			}
 		}
 	}()

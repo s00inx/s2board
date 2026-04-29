@@ -9,7 +9,6 @@ import (
 	"net/url"
 
 	"github.com/s00inx/s2board/internal/models"
-	"github.com/s00inx/s2board/internal/network"
 )
 
 // frontend endpoints
@@ -154,8 +153,8 @@ func (a *App) createh(w http.ResponseWriter, r *http.Request) {
 	// 	return
 	// }
 
-	// bcpacket := models.NewBCp(man, models.Actsave, a.Node.UID, a.Node.PrivateK)
-	// go a.Node.Broadcast(bcpacket)
+	// P2PPacket := models.NewPacket(man, models.Actsave, a.Node.UID, a.Node.PrivateK)
+	// go a.Node.Broadcast(P2PPacket)
 
 	// w.WriteHeader(http.StatusOK)
 }
@@ -178,8 +177,8 @@ func (a *App) delh(w http.ResponseWriter, r *http.Request) {
 	// 	return
 	// }
 
-	// bcpacket := models.NewBCp(man, models.Actsave, a.Node.UID, a.Node.PrivateK)
-	// go a.Node.Broadcast(bcpacket)
+	// P2PPacket := models.NewPacket(man, models.Actsave, a.Node.UID, a.Node.PrivateK)
+	// go a.Node.Broadcast(P2PPacket)
 
 	// err = a.Node.RmNote(req.Mhash)
 	// if err != nil {
@@ -210,54 +209,30 @@ func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
 
 // all p2p Push logic
 func (a *App) p2phandler(w http.ResponseWriter, r *http.Request) {
-	// decode broadcast packet from request
-	var pk models.BCPacket
+	// decode p2p packet from request
+	var incp models.P2PPacket
 
-	if err := json.NewDecoder(r.Body).Decode(&pk); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&incp); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if !pk.Verify() {
-		log.Printf("[p2p] invalid signature from %s -> denied", pk.Senderuid[:8])
+	if !incp.Verify() {
+		log.Printf("[p2p] invalid signature from %s -> denied", incp.Senderuid[:8])
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
 
 	// process packet payload based on action
-	switch pk.Action {
-	case models.Actsave:
-		var man models.Manifest
-		if err := json.Unmarshal(pk.Payload, &man); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
+	switch incp.Action {
+	// handshake logic : recv hello -> send helloack
+	case models.ActHello:
+		pl, err := a.Node.RecvHellof(&incp, a.Node.IP, a.Node.Port)
+		if err != nil {
 			return
 		}
 
-		peer := *network.NewPeer(pk.Senderuid)
-		if err := a.Node.Recvf(peer, &man); err != nil {
-			log.Printf("[p2p] error saving manifest: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-	case models.Actdel:
-		var man models.Manifest
-		if err := json.Unmarshal(pk.Payload, &man); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		if pk.Senderuid != man.AuthorUID {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-
-		a.Node.RmNote(man.Hash)
-		log.Printf("[p2p] note %s deleted", man.Hash[:8])
-
-	case models.Actbye:
-		a.Node.ForgetPeer(pk.Senderuid)
-		log.Printf("[p2p] peer %s disconnected", pk.Senderuid[:8])
-
+		ack := models.NewPacket(pl, models.ActHelloAck, a.Node.UID, a.Node.PrivateK)
+		json.NewEncoder(w).Encode(ack)
 	default:
 		w.WriteHeader(http.StatusBadRequest)
 		return

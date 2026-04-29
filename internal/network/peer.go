@@ -19,7 +19,7 @@ func NewPeer(uid string) *Peer {
 	return &Peer{UID: uid}
 }
 
-// file -> peers table for downloading
+// file hash -> peers table for downloading
 type fpeermap struct {
 	mu sync.Mutex
 	d  map[string][]string

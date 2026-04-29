@@ -10,8 +10,8 @@ import (
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// broadcast models/bcpacket to all known peers in local network
-func (n *Node) Broadcast(p *models.BCPacket) {
+// broadcast models/P2PPacket to all known peers in local network
+func (n *Node) Broadcast(p *models.P2PPacket) {
 	p2send, err := json.Marshal(p)
 	if err != nil {
 		log.Printf("[broadcast] marshal error: %v -> ignored", err)

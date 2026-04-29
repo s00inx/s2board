@@ -6,115 +6,138 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
+	"net/http"
+	"time"
 
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// get list if all hashes
-func (n *Node) GetHashes() ([]string, error) {
-	return n.DbStorage.GetHashesList()
+type HelloPayload struct {
+	Name   string   `json:"name"`
+	UID    string   `json:"uid"`
+	Hashes []string `json:"hashes"`
 }
 
-// принимает список хешей и отдает полные манифесты
-func (n *Node) FetchManifests(hashes []string) ([]models.Manifest, error) {
-	var res []models.Manifest
+// node <-> node first data exchange (pub key, name and hash list)
+func (n *Node) Handshakew(ip string, port int, action models.Actcode) {
+	// building self hello packet
+	hsbytes, _ := n.GetHashes()
 
-	if len(hashes) > 100 {
-		hashes = hashes[:100]
+	pl := HelloPayload{
+		Name:   n.PubName,
+		UID:    n.UID,
+		Hashes: hsbytes,
 	}
+	pl2send, _ := json.Marshal(pl)
 
-	for _, h := range hashes {
-		man, err := n.DbStorage.GetManh(h, models.Bucketvirtual)
-		if err == nil && man != nil {
-			res = append(res, *man)
-		}
-	}
+	hellop := models.NewPacket(pl2send, action, n.UID, n.PrivateK)
+	sehello, err := json.Marshal(hellop)
 
-	return res, nil
-}
-
-// symmetric sync node and EXACT peer (args: peer and hash list)
-func (n *Node) Syncw(p Peer, hl2send []string) {
-	jd2send, err := json.Marshal(hl2send)
 	if err != nil {
 		return
 	}
 
-	hellop := models.NewBCp(jd2send, models.Acthello, n.UID, n.PrivateK)
-
-	resp, err := n.client.Get(fmt.Sprintf("http://%s:%d/api/hello", p.IP, p.Port))
+	hellopacket, err := n.sendp(ip, port, sehello)
 	if err != nil {
 		return
+	}
+
+	// waiting for helloack, so drop other packets
+	if hellopacket.Action != models.ActHelloAck {
+		return
+	}
+
+	var hellopl HelloPayload
+	json.Unmarshal(hellopacket.Payload, &hellopl)
+
+	nei := Peer{
+		UID:      hellopacket.Senderuid,
+		Name:     hellopl.Name,
+		IP:       ip,
+		Port:     port,
+		LastSeen: time.Now(),
+	}
+
+	n.peers.add(nei)
+	for _, h := range hellopl.Hashes {
+		n.filepeers.add(h, nei)
+	}
+}
+
+// receive a hello packet -> send ack packet, finalize handshake
+func (n *Node) RecvHellof(reqp *models.P2PPacket, rmaddr string, port int) ([]byte, error) {
+	var reqpl HelloPayload
+	if err := json.Unmarshal(reqp.Payload, &reqpl); err != nil {
+		return nil, fmt.Errorf("[handshake] invalid req packet payload")
+	}
+
+	nei := Peer{
+		UID:      reqp.Senderuid,
+		Name:     reqpl.Name,
+		IP:       rmaddr,
+		Port:     port,
+		LastSeen: time.Now(),
+	}
+
+	n.peers.add(nei)
+	for _, h := range reqpl.Hashes {
+		n.filepeers.add(h, nei)
+	}
+
+	myhashes, _ := n.GetHashes()
+	resppl, _ := json.Marshal(HelloPayload{
+		Name:   n.PubName,
+		Hashes: myhashes,
+	})
+
+	return resppl, nil
+}
+
+// send a p2p packet to exact ip:port
+func (n *Node) sendp(ip string, port int, packet2send []byte) (*models.P2PPacket, error) {
+	// sending packet to addr
+	resp, err := n.client.Post(fmt.Sprintf("http://%s:%d/api/p2p", ip, port), "application/json", bytes.NewReader(packet2send))
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var rem []string
-	if err := json.NewDecoder(resp.Body).Decode(&rem); err != nil {
-		return
-	}
-	var missing []string
-	for _, h := range rem {
-		if !n.DbStorage.NoteExist(h) {
-			missing = append(missing, h)
-		}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bad status: %d", resp.StatusCode)
 	}
 
-	// if nothing is missed - end
-	if len(missing) == 0 {
-		log.Printf("[sync] peer %s -> nothing to sync", p.UID[:8])
-		return
+	// process response packet
+	var respp models.P2PPacket
+	if err := json.NewDecoder(resp.Body).Decode(&respp); err != nil {
+		return nil, err
 	}
 
-	log.Printf("[sync] peer %s: missing %d -> fetching", p.UID[:8], len(missing))
-	body, _ := json.Marshal(missing)
-
-	// do request with all missing hashes
-	fresp, err := n.client.Post(
-		fmt.Sprintf("http://%s:%d/api/fetch", p.IP, p.Port),
-		"application/json",
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return
-	}
-	defer fresp.Body.Close()
-
-	var newmanl []models.Manifest
-	if err := json.NewDecoder(fresp.Body).Decode(&newmanl); err != nil {
-		return
+	if !respp.Verify() {
+		return nil, fmt.Errorf("invalid signature from %s:%d", ip, port)
 	}
 
-	for _, man := range newmanl {
-		if !man.Verify() {
-			log.Printf("[sync] fake signature for note '%s' from peer %s -> ignored.", man.Title, p.UID[:8])
-			continue
-		}
+	return &respp, nil
+}
 
-		if man.FileSize == 0 && !n.DbStorage.NoteExist(man.Hash) {
-			if err := n.DbStorage.Save2db(man, models.Bucketlocal); err != nil {
-				return
-			}
-		}
+// assymetrical sync with node and all peers
+func (n *Node) Syncallw() {
+	dstp := n.GetConns()
 
-		if man.FileSize > 0 && !n.FileStorage.FileExists(man.FileHash) && man.FileSize < mindlsize {
-			err := n.DlFile(p, man.FileHash)
+	myhashes, _ := n.GetHashes()
+	payload, _ := json.Marshal(HelloPayload{
+		Name:   n.PubName,
+		Hashes: myhashes,
+	})
 
-			if err != nil {
-				log.Printf("[sync] failed to dl %s: %v -> ignored", man.FileHash[:8], err)
-			}
-			log.Printf("[sync] dl blob for note: %s -> ok", man.Title)
-			if err := n.DbStorage.Save2db(man, models.Bucketlocal); err != nil {
-				return
-			}
-		} else {
-			n.filepeers.add(man.Hash, p)
-		}
-
-		if err := n.DbStorage.Save2db(man, models.Bucketvirtual); err != nil {
-			return
-		}
+	for _, p := range dstp {
+		go func(p Peer) {
+			outp, _ := json.Marshal(models.NewPacket(payload, models.ActSync, n.UID, n.PrivateK))
+			n.sendp(p.IP, p.Port, outp)
+		}(p)
 	}
+}
 
-	log.Printf("[sync] %s (%s) -> synced", p.Name, p.UID[:8])
+// get list if all hashes
+func (n *Node) GetHashes() ([]string, error) {
+	return n.DbStorage.GetHashesList()
 }
