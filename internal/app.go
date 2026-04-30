@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"github.com/s00inx/s2board/internal/codec"
 	"github.com/s00inx/s2board/internal/network"
 	"github.com/s00inx/s2board/internal/storage"
+	"github.com/s00inx/s2board/internal/transport"
 )
 
 type Config struct {
@@ -44,6 +46,7 @@ func (a *App) Run() {
 	if err != nil {
 		log.Fatal("[FATAL] node connect error: ", err)
 	}
+	Node.Codec = codec.JSONCodec{}
 	Node.DbStorage = ist
 	Node.FileStorage = est
 	a.Node = Node
@@ -58,8 +61,17 @@ func (a *App) Run() {
 		log.Println("[WARN] could not find valid net interface, using localhost")
 	}
 
+	url := fmt.Sprintf("http://%s:%d", ipstr, a.cfg.Port)
+	tr := &transport.HTTPTransport{
+		Codec: a.Node.Codec,
+		Port:  a.cfg.Port,
+	}
+	a.Node.Transport = *tr
+
+	mux := a.setupRoutes()
+
 	// setup mDns for local node discovery
-	nm, mdnsrv, err := network.InitMdns(liface, a.Node.UID, a.cfg.Name, a.cfg.Port)
+	_, mdnsrv, err := network.InitMdns(liface, a.Node.UID, a.cfg.Name, a.cfg.Port)
 	if err != nil {
 		log.Println("[WARN] mDNS registration failed: ", err)
 	} else {
@@ -70,19 +82,15 @@ func (a *App) Run() {
 	go a.Node.Discover(context.Background())
 
 	// print debug information
-	url := fmt.Sprintf("http://%s:%d", ipstr, a.cfg.Port)
-	fmt.Printf("\nservice is STARTED...\n")
-	fmt.Printf("node UID: %s\n", a.Node.UID[:16])
-	fmt.Printf("local UI: %s\n", url)
-	fmt.Printf("local IP: %s:%d\n", nm, a.cfg.Port)
-	mux := a.setupRoutes()
 
-	// up node server on :port for routing (http REST api)
+	fmt.Printf("node UID: %s | local UI: http://%s:%d\n", a.Node.UID[:16], url, a.cfg.Port)
+
+	// Запускаем общий сервер
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", a.cfg.Port), mux))
 }
 
 func (a *App) setupRoutes() *http.ServeMux {
-	mux := http.NewServeMux()
+	mux := a.Node.Transport.Start(a.cfg.Port, a.Node.ProcessPacket)
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "tmpstatic/index.html")
@@ -91,24 +99,9 @@ func (a *App) setupRoutes() *http.ServeMux {
 	// main page
 	mux.HandleFunc("GET /api/list", a.listallh)
 
-	// downloading files
-	mux.HandleFunc("GET /api/dl/{hash}", a.dlh)
-	mux.HandleFunc("GET /api/hasf/{hash}", a.hasfh)
-
-	// sync and sending
-	mux.HandleFunc("POST /api/fetch", a.fetchh)
-	mux.HandleFunc("GET /api/hello", a.helloh)
-
-	// p2p network
-	mux.HandleFunc("POST /api/p2p", a.p2phandler)
-
-	// posting files
-	mux.HandleFunc("POST /api/create", a.createh)
-	mux.HandleFunc("POST /api/del", a.delh)
-
-	// etc ..
+	// FRONTEND simple endpoints
 	mux.HandleFunc("GET /api/getpeers", a.getpeersh)
-	mux.HandleFunc("GET /api/me", a.meh)
+	mux.HandleFunc("POST /api/create", a.createh)
 
 	return mux
 }

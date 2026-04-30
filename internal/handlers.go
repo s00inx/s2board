@@ -6,14 +6,14 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
-
-	"github.com/s00inx/s2board/internal/models"
+	"os"
+	"path/filepath"
 )
 
 // frontend endpoints
 // RU: ниже расписана логика работы и почему была выбрана именно она
 // фронтенд просто берет записи у бекенда, так что логично что тут только GET
+// это просто костыль для того, чтобы был красивый фронтенд, в идеальной p2p сети такого конечно нет
 
 // GET /api/list : получить список всех хешей в локальной сети
 func (a *App) listallh(w http.ResponseWriter, r *http.Request) {
@@ -21,82 +21,37 @@ func (a *App) listallh(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(mlist)
 }
 
-// GET /api/hello : получить список всех хешей конкретной ноды
-func (a *App) helloh(w http.ResponseWriter, r *http.Request) {
-	hashes, err := a.Node.GetHashes()
-	if err != nil {
-		http.Error(w, "", 500)
-		return
-	}
+// // GET /api/dl/{hash} : скачать файл по его хешу
+// func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
+// 	hval := r.PathValue("hash")
+// 	if len(hval) < 8 {
+// 		http.Error(w, "invalid hash", http.StatusBadRequest)
+// 		return
+// 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(hashes)
-}
+// 	c, err := a.Node.Dlf(hval)
+// 	if err != nil {
+// 		log.Printf("[ERR] Download failed for %s: %v", hval[:8], err)
+// 		http.Error(w, "File not found in network", http.StatusNotFound)
+// 		return
+// 	}
+// 	defer c.Close()
 
-// POST /api/fetch : получить список манифестов по списку хешей
-func (a *App) fetchh(w http.ResponseWriter, r *http.Request) {
-	var hashes []string
-	if err := json.NewDecoder(r.Body).Decode(&hashes); err != nil {
-		log.Printf("[ERR] fetch: failed to decode JSON: %v", err)
-		http.Error(w, "invalid json body", http.StatusBadRequest)
-		return
-	}
+// 	man, _ := a.Node.DbStorage.GetManfh(hval, models.Bucketvirtual)
+// 	if man != nil {
+// 		w.Header().Set("Content-Disposition", "attachment; filename=\""+url.PathEscape(man.Title)+"\"")
+// 		w.Header().Set("Content-Length", fmt.Sprintf("%d", man.FileSize))
+// 	} else {
+// 		w.Header().Set("Content-Disposition", "attachment; filename=\""+hval+"\"")
+// 	}
 
-	m2fetch, err := a.Node.FetchManifests(hashes)
-	if err != nil {
-		log.Printf("[ERR] fetch: db error: %v", err)
-		http.Error(w, "internal database error", http.StatusInternalServerError)
-		return
-	}
+// 	w.Header().Set("Content-Type", "application/octet-stream")
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(m2fetch); err != nil {
-		log.Printf("[ERR] fetch: failed to encode response: %v", err)
-	}
-}
-
-// GET /api/dl/{hash} : скачать файл по его хешу
-func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
-	hval := r.PathValue("hash")
-	if len(hval) < 8 {
-		http.Error(w, "invalid hash", http.StatusBadRequest)
-		return
-	}
-
-	c, err := a.Node.Dlf(hval)
-	if err != nil {
-		log.Printf("[ERR] Download failed for %s: %v", hval[:8], err)
-		http.Error(w, "File not found in network", http.StatusNotFound)
-		return
-	}
-	defer c.Close()
-
-	man, _ := a.Node.DbStorage.GetManfh(hval, models.Bucketvirtual)
-	if man != nil {
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+url.PathEscape(man.Title)+"\"")
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", man.FileSize))
-	} else {
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+hval+"\"")
-	}
-
-	w.Header().Set("Content-Type", "application/octet-stream")
-
-	_, err = io.Copy(w, c)
-	if err != nil {
-		log.Printf("[ERR] Stream error for %s: %v", hval[:8], err)
-	}
-}
-
-// GET /api/hasf/{hash} : выяснить есть ли файл у ноды
-func (a *App) hasfh(w http.ResponseWriter, r *http.Request) {
-	hashval := r.PathValue("hash")
-
-	if !a.Node.FileStorage.FileExists(hashval) {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(200)
-}
+// 	_, err = io.Copy(w, c)
+// 	if err != nil {
+// 		log.Printf("[ERR] Stream error for %s: %v", hval[:8], err)
+// 	}
+// }
 
 // GET /api/me
 func (a *App) meh(w http.ResponseWriter, r *http.Request) {
@@ -106,89 +61,46 @@ func (a *App) meh(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// POST /api/create : создать новую заметку (multipart form)
 func (a *App) createh(w http.ResponseWriter, r *http.Request) {
-	// if err := r.ParseMultipartForm(32 << 20); err != nil {
-	// 	http.Error(w, "form error", http.StatusBadRequest)
-	// 	return
-	// }
+	if err := r.ParseMultipartForm(100 << 20); err != nil {
+		http.Error(w, "form error", 400)
+		return
+	}
 
-	// title := r.FormValue("title")
-	// desc := r.FormValue("desc")
-	// author := r.FormValue("author")
+	title := r.FormValue("title")
+	desc := r.FormValue("desc")
 
-	// if author == "" {
-	// 	author = a.cfg.Name
-	// }
+	var tempPath string
+	file, header, err := r.FormFile("file")
 
-	// // var man *models.Manifest
-	// var err error
+	if err == nil {
+		defer file.Close()
+		tempPath = filepath.Join(os.TempDir(), header.Filename)
+		out, err := os.Create(tempPath)
+		if err != nil {
+			http.Error(w, "temp file creation failed", 500)
+			return
+		}
+		io.Copy(out, file)
+		out.Close()
+		defer os.Remove(tempPath)
+	} else if err != http.ErrMissingFile {
+		fmt.Print(err)
+		http.Error(w, "file error", 400)
+		return
+	}
 
-	// file, header, fileErr := r.FormFile("file")
+	man, err := a.Node.Createf(tempPath, title, desc)
+	if err != nil {
+		log.Printf("[ERR] upload failed: %v", err)
+		http.Error(w, "internal p2p error", 500)
+		return
+	}
 
-	// switch fileErr {
-	// case nil:
-	// 	defer file.Close()
-	// 	tempPath := filepath.Join(os.TempDir(), header.Filename)
-	// 	out, err := os.Create(tempPath)
-	// 	if err != nil {
-	// 		http.Error(w, "internal error", 500)
-	// 		return
-	// 	}
-	// 	io.Copy(out, file)
-	// 	out.Close()
-	// 	defer os.Remove(tempPath)
-
-	// 	// man, err = a.Node.Uploadf(tempPath, title, desc)
-	// case http.ErrMissingFile:
-	// 	// man, err = a.Node.Uploadf("", title, desc)
-	// default:
-	// 	http.Error(w, "bad file", http.StatusBadRequest)
-	// 	return
-	// }
-
-	// if err != nil {
-	// 	log.Printf("[ERR] create failed: %v", err)
-	// 	http.Error(w, "failed to create manifest", 500)
-	// 	return
-	// }
-
-	// P2PPacket := models.NewPacket(man, models.Actsave, a.Node.UID, a.Node.PrivateK)
-	// go a.Node.Broadcast(P2PPacket)
-
-	// w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(man)
 }
 
-// POST /api/del : фронтенд просит удалить манифест
-func (a *App) delh(w http.ResponseWriter, r *http.Request) {
-	// var req struct {
-	// 	Mhash string `json:"hash"`
-	// }
-
-	// if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-	// 	http.Error(w, "invalid JSON", http.StatusBadRequest)
-	// 	return
-	// }
-	// defer r.Body.Close()
-
-	// man, err := a.Node.DbStorage.GetManh(req.Mhash, models.Bucketvirtual)
-	// if err != nil || man == nil {
-	// 	http.Error(w, "manifest not found", http.StatusNotFound)
-	// 	return
-	// }
-
-	// P2PPacket := models.NewPacket(man, models.Actsave, a.Node.UID, a.Node.PrivateK)
-	// go a.Node.Broadcast(P2PPacket)
-
-	// err = a.Node.RmNote(req.Mhash)
-	// if err != nil {
-	// 	log.Printf("[del] error removing %s: %v", req.Mhash[:8], err)
-	// 	w.WriteHeader(http.StatusInternalServerError)
-	// 	return
-	// }
-}
-
-// GET /api/getpeers : посмотреть список всех пиров в локальной сети
 func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
 	conns := a.Node.GetConns()
 
@@ -207,36 +119,34 @@ func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
 // за всю п2п логику отвечает именно 1 эндпоинт /api/p2p, только POST (нет смысла следовать rest)
 // todo: сделать бинарный протокол поверх udp
 
-// all p2p Push logic
-func (a *App) p2phandler(w http.ResponseWriter, r *http.Request) {
-	// decode p2p packet from request
-	var incp models.P2PPacket
+// key simplification ONLY for http : GET /dl/{filehash}
+// func (a *App) p2pdlhandler(w http.ResponseWriter, r *http.Request) {
+// 	hval := r.PathValue("hash")
+// 	if len(hval) < 8 {
+// 		http.Error(w, "invalid hash", http.StatusBadRequest)
+// 		return
+// 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&incp); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if !incp.Verify() {
-		log.Printf("[p2p] invalid signature from %s -> denied", incp.Senderuid[:8])
-		w.WriteHeader(http.StatusForbidden)
-		return
-	}
+// 	c, err := a.Node.Dlf(hval)
+// 	if err != nil {
+// 		log.Printf("[ERR] Download failed for %s: %v", hval[:8], err)
+// 		http.Error(w, "File not found in network", http.StatusNotFound)
+// 		return
+// 	}
+// 	defer c.Close()
 
-	// process packet payload based on action
-	switch incp.Action {
-	// handshake logic : recv hello -> send helloack
-	case models.ActHello:
-		pl, err := a.Node.RecvHellof(&incp, a.Node.IP, a.Node.Port)
-		if err != nil {
-			return
-		}
+// 	man, _ := a.Node.DbStorage.GetManfh(hval, models.Bucketvirtual)
+// 	if man != nil {
+// 		w.Header().Set("Content-Disposition", "attachment; filename=\""+url.PathEscape(man.Title)+"\"")
+// 		w.Header().Set("Content-Length", fmt.Sprintf("%d", man.FileSize))
+// 	} else {
+// 		w.Header().Set("Content-Disposition", "attachment; filename=\""+hval+"\"")
+// 	}
 
-		ack := models.NewPacket(pl, models.ActHelloAck, a.Node.UID, a.Node.PrivateK)
-		json.NewEncoder(w).Encode(ack)
-	default:
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+// 	w.Header().Set("Content-Type", "application/octet-stream")
 
-	w.WriteHeader(http.StatusOK)
-}
+// 	_, err = io.Copy(w, c)
+// 	if err != nil {
+// 		log.Printf("[ERR] Stream error for %s: %v", hval[:8], err)
+// 	}
+// }

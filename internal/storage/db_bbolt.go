@@ -45,7 +45,6 @@ func (s *InternalStorage) Save2db(man models.Manifest, bucket string) error {
 
 func (s *InternalStorage) GetManh(hash string, bucket string) (*models.Manifest, error) {
 	var m models.Manifest
-
 	err := s.DB.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		if b == nil {
@@ -127,8 +126,6 @@ func (s *InternalStorage) DeleteMan(hash string, bucket string) (string, error) 
 	return fh, err
 }
 
-// получить все хеши для синхронизации, берем из локальной бд.
-// (так как это для синка, то есть интересуют тока те записи, которыми нода может поделиться)
 func (s *InternalStorage) GetHashesList() ([]string, error) {
 	var hashes []string
 

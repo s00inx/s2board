@@ -1,3 +1,4 @@
+// p2p packet crypto and data encapsulation logic
 package models
 
 import (
