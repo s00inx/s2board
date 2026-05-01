@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"time"
 
 	"github.com/grandcat/zeroconf"
 	"github.com/s00inx/s2board/internal/models"
@@ -42,10 +43,13 @@ func (n *Node) Discover(ctx context.Context) {
 					continue
 				}
 
-				if targetip != n.IP && entry.Port != n.Port {
-					go n.Handshakew(targetip, entry.Port, models.ActHello)
-					log.Printf("found peer on %s:%d", targetip, entry.Port)
+				if targetip == n.IP && entry.Port == n.Port {
+					continue
 				}
+
+				time.Sleep(500 * time.Millisecond)
+				go n.Handshakew(targetip, entry.Port, models.ActHello)
+				log.Printf("found peer on %s:%d", targetip, entry.Port)
 			}
 		}
 	}()
@@ -121,14 +125,4 @@ func GetLocalIface() (*net.Interface, string) {
 	}
 	// ?? maybe panic here
 	return nil, "127.0.0.1"
-}
-
-// when node leaves the network / recv bye bc packet
-func (n *Node) ForgetPeer(peeruid string) {
-	h2del := n.filepeers.rm(peeruid)
-	n.peers.rm(peeruid)
-
-	for _, h := range h2del {
-		n.DbStorage.DeleteMan(h, models.Bucketvirtual)
-	}
 }

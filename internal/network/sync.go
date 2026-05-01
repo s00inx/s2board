@@ -1,4 +1,4 @@
-// hello/bye packet sending & receive logic
+// sync node and peer
 package network
 
 import (
@@ -39,8 +39,7 @@ func (n *Node) syncvirtual() {
 		for _, m := range found {
 			if m.Verify() {
 				n.DbStorage.Save2db(m, models.Bucketvirtual)
-				n.filepeers.add(m.FileHash, p)
-				n.mpeers.drop(m.Hash)
+				n.mpeers.add(m.Hash, p.UID)
 			}
 		}
 	}
@@ -53,8 +52,6 @@ func (n *Node) getrhashes() []string {
 	for h := range n.mpeers.d {
 		if !n.DbStorage.NoteExist(h) {
 			t = append(t, h)
-		} else {
-			n.mpeers.drop(h)
 		}
 	}
 	n.mpeers.mu.RUnlock()
@@ -64,4 +61,12 @@ func (n *Node) getrhashes() []string {
 // get list if all hashes
 func (n *Node) getSyncList() ([]string, error) {
 	return n.DbStorage.GetHashesList()
+}
+
+func (n *Node) forgetpeer(puid string) {
+
+	n.mpeers.droppeer(puid)
+	n.peers.rm(puid)
+
+	go n.syncvirtual()
 }

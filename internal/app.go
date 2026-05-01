@@ -56,17 +56,17 @@ func (a *App) Run() {
 	a.Node.DbStorage.InitLocal()
 
 	// get a net interface to link node <-> interface
-	liface, ipstr := network.GetLocalIface()
+	liface, _ := network.GetLocalIface()
 	if liface == nil {
 		log.Println("[WARN] could not find valid net interface, using localhost")
 	}
 
-	url := fmt.Sprintf("http://%s:%d", ipstr, a.cfg.Port)
+	// url := fmt.Sprintf("http://%s:%d", ipstr, a.cfg.Port)
 	tr := &transport.HTTPTransport{
 		Codec: a.Node.Codec,
 		Port:  a.cfg.Port,
 	}
-	a.Node.Transport = *tr
+	a.Node.Transport = tr
 
 	mux := a.setupRoutes()
 
@@ -82,17 +82,14 @@ func (a *App) Run() {
 	go a.Node.Discover(context.Background())
 
 	// print debug information
-
-	fmt.Printf("node UID: %s | local UI: http://%s:%d\n", a.Node.UID[:16], url, a.cfg.Port)
-
-	// Запускаем общий сервер
+	// fmt.Printf("node UID: %s | local UI: http://%s:%d\n", a.Node.UID[:16], url, a.cfg.Port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", a.cfg.Port), mux))
 }
 
 func (a *App) setupRoutes() *http.ServeMux {
 	mux := a.Node.Transport.Start(a.cfg.Port, a.Node.ProcessPacket)
 
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "tmpstatic/index.html")
 	})
 
@@ -102,6 +99,7 @@ func (a *App) setupRoutes() *http.ServeMux {
 	// FRONTEND simple endpoints
 	mux.HandleFunc("GET /api/getpeers", a.getpeersh)
 	mux.HandleFunc("POST /api/create", a.createh)
+	mux.HandleFunc("GET /api/dl/{hash}", a.dlhandler)
 
 	return mux
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/s00inx/s2board/internal/codec"
 	"github.com/s00inx/s2board/internal/models"
+	"github.com/s00inx/s2board/internal/storage"
 	"github.com/s00inx/s2board/internal/transport"
 )
 
@@ -24,17 +25,17 @@ type Node struct {
 	Port    int
 	PubName string
 
-	DbStorage   nodeInternalStorage
-	FileStorage nodeExternalStorage
+	DbStorage   storage.NodeInternalStorage
+	FileStorage storage.NodeExternalStorage
 	Codec       codec.Codec
 	Transport   transport.Transport
 
-	peers     *peermap
-	filepeers *fpeermap
-	mpeers    *mpeertable
+	peers  *peermap
+	mpeers *mhtable
 }
 
-// unified process logic for p2p packets
+// unified process logic for p2p packets (in -> process -> out)
+// this func is only business-logic dispatcher
 func (n *Node) ProcessPacket(incp *models.P2PPacket) (*models.P2PPacket, error) {
 	if !incp.Verify() {
 		return nil, fmt.Errorf("invalid signature")
@@ -44,12 +45,7 @@ func (n *Node) ProcessPacket(incp *models.P2PPacket) (*models.P2PPacket, error) 
 
 	switch incp.Action {
 	case models.ActHello:
-		pl, err := n.RecvHellof(incp, peer.IP, peer.Port)
-		if err != nil {
-			return nil, err
-		}
-
-		return models.NewPacket(pl, models.ActHelloAck, n.UID, n.PrivateK), nil
+		return n.RecvHandshakef(incp, peer.IP, peer.Port)
 
 	case models.Actsave:
 		var man models.Manifest
@@ -59,6 +55,15 @@ func (n *Node) ProcessPacket(incp *models.P2PPacket) (*models.P2PPacket, error) 
 
 	case models.ActReqM:
 		return n.recvfetchmans(incp)
+
+	case models.ActReqF:
+		return n.RecvDlf(incp, fmt.Sprintf("%s:%d", peer.IP, peer.Port))
+
+	case models.Actdel:
+		return nil, n.RecvDelf(incp)
+
+	case models.Actbye:
+		return nil, n.RecvByep(incp)
 
 	default:
 		return nil, fmt.Errorf("unknown action")
@@ -96,13 +101,12 @@ func ConnNode(prkpath string, port int, name string) (*Node, error) {
 
 	log.Printf("[init] node connected")
 	return &Node{
-		PublicK:   pub,
-		PrivateK:  priv,
-		UID:       hex.EncodeToString(pub),
-		Port:      port,
-		PubName:   name,
-		peers:     newpeermap(),
-		filepeers: newfilepeermap(),
-		mpeers:    newmpeertable(),
+		PublicK:  pub,
+		PrivateK: priv,
+		UID:      hex.EncodeToString(pub),
+		Port:     port,
+		PubName:  name,
+		peers:    newpeermap(),
+		mpeers:   newmpeertable(),
 	}, nil
 }

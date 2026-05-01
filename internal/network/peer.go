@@ -19,18 +19,20 @@ func NewPeer(uid string) *Peer {
 	return &Peer{UID: uid}
 }
 
-type mpeertable struct {
+// manifest hash -> peer list table
+// manifest guarantee that file exist on NODE disk, because handshake gives only "local" files
+type mhtable struct {
 	mu sync.RWMutex
 	d  map[string][]string
 }
 
-func newmpeertable() *mpeertable {
-	return &mpeertable{
+func newmpeertable() *mhtable {
+	return &mhtable{
 		d: make(map[string][]string),
 	}
 }
 
-func (mt *mpeertable) add(mhash string, peerid string) {
+func (mt *mhtable) add(mhash string, peerid string) {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 
@@ -40,7 +42,7 @@ func (mt *mpeertable) add(mhash string, peerid string) {
 	mt.d[mhash] = append(mt.d[mhash], peerid)
 }
 
-func (mt *mpeertable) getpeerlist(mhash string) ([]string, bool) {
+func (mt *mhtable) getpeerlist(mhash string) ([]string, bool) {
 	mt.mu.RLock()
 	defer mt.mu.RUnlock()
 
@@ -48,7 +50,7 @@ func (mt *mpeertable) getpeerlist(mhash string) ([]string, bool) {
 	return h, ok
 }
 
-func (mt *mpeertable) rm(peerid string) []string {
+func (mt *mhtable) droppeer(peerid string) []string {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 
@@ -71,63 +73,10 @@ func (mt *mpeertable) rm(peerid string) []string {
 	return emptyh
 }
 
-func (mt *mpeertable) drop(mhash string) {
+func (mt *mhtable) dropfh(mhash string) {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 	delete(mt.d, mhash)
-}
-
-// file hash -> peers table for downloading
-type fpeermap struct {
-	mu sync.Mutex
-	d  map[string][]string
-}
-
-func newfilepeermap() *fpeermap {
-	return &fpeermap{
-		d: make(map[string][]string, 0),
-	}
-}
-
-func (fm *fpeermap) add(hash string, peer Peer) {
-	fm.mu.Lock()
-	defer fm.mu.Unlock()
-
-	if slices.Contains(fm.d[hash], peer.UID) {
-		return
-	}
-	fm.d[hash] = append(fm.d[hash], peer.UID)
-}
-
-func (fm *fpeermap) rm(peerid string) []string {
-	fm.mu.Lock()
-	defer fm.mu.Unlock()
-
-	var emptyh []string
-
-	for hash, ps := range fm.d {
-		nps := ps[:0]
-		for _, pr := range ps {
-			if pr != peerid {
-				nps = append(nps, pr)
-			}
-		}
-		fm.d[hash] = nps
-
-		if len(nps) == 0 {
-			emptyh = append(emptyh, hash)
-			delete(fm.d, hash)
-		}
-	}
-	return emptyh
-}
-
-func (fm *fpeermap) getpeerlist(hash string) ([]string, bool) {
-	fm.mu.Lock()
-	defer fm.mu.Unlock()
-
-	h, ok := fm.d[hash]
-	return h, ok
 }
 
 // uid -> peer map for tracking active connections in local network

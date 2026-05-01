@@ -1,3 +1,4 @@
+// handlers ONLY for frontend endpoints (/api/...)
 package internal
 
 import (
@@ -10,48 +11,11 @@ import (
 	"path/filepath"
 )
 
-// frontend endpoints
-// RU: ниже расписана логика работы и почему была выбрана именно она
-// фронтенд просто берет записи у бекенда, так что логично что тут только GET
-// это просто костыль для того, чтобы был красивый фронтенд, в идеальной p2p сети такого конечно нет
-
 // GET /api/list : получить список всех хешей в локальной сети
 func (a *App) listallh(w http.ResponseWriter, r *http.Request) {
 	mlist := a.internalst.GetManList()
 	json.NewEncoder(w).Encode(mlist)
 }
-
-// // GET /api/dl/{hash} : скачать файл по его хешу
-// func (a *App) dlh(w http.ResponseWriter, r *http.Request) {
-// 	hval := r.PathValue("hash")
-// 	if len(hval) < 8 {
-// 		http.Error(w, "invalid hash", http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	c, err := a.Node.Dlf(hval)
-// 	if err != nil {
-// 		log.Printf("[ERR] Download failed for %s: %v", hval[:8], err)
-// 		http.Error(w, "File not found in network", http.StatusNotFound)
-// 		return
-// 	}
-// 	defer c.Close()
-
-// 	man, _ := a.Node.DbStorage.GetManfh(hval, models.Bucketvirtual)
-// 	if man != nil {
-// 		w.Header().Set("Content-Disposition", "attachment; filename=\""+url.PathEscape(man.Title)+"\"")
-// 		w.Header().Set("Content-Length", fmt.Sprintf("%d", man.FileSize))
-// 	} else {
-// 		w.Header().Set("Content-Disposition", "attachment; filename=\""+hval+"\"")
-// 	}
-
-// 	w.Header().Set("Content-Type", "application/octet-stream")
-
-// 	_, err = io.Copy(w, c)
-// 	if err != nil {
-// 		log.Printf("[ERR] Stream error for %s: %v", hval[:8], err)
-// 	}
-// }
 
 // GET /api/me
 func (a *App) meh(w http.ResponseWriter, r *http.Request) {
@@ -112,41 +76,23 @@ func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// p2p endpoint
-// RU: в mvp для транспорта был выбран именно HTTP потому что он прост в отладке, но влечет за собой оверхед
-// на заголовки и json, также я использовал только Push на бекенде, Pull оставил только для фронтенда,
-// это просто упрощение, в p2p сетях лучше использовать только Push!
-// за всю п2п логику отвечает именно 1 эндпоинт /api/p2p, только POST (нет смысла следовать rest)
-// todo: сделать бинарный протокол поверх udp
+// GET /api/dl/{hash}
+func (a *App) dlhandler(w http.ResponseWriter, r *http.Request) {
+	fhash := r.PathValue("hash")
+	if fhash == "" {
+		http.Error(w, "hash is required", http.StatusBadRequest)
+		return
+	}
 
-// key simplification ONLY for http : GET /dl/{filehash}
-// func (a *App) p2pdlhandler(w http.ResponseWriter, r *http.Request) {
-// 	hval := r.PathValue("hash")
-// 	if len(hval) < 8 {
-// 		http.Error(w, "invalid hash", http.StatusBadRequest)
-// 		return
-// 	}
+	log.Printf("[ui] download request for hash: %s", fhash)
 
-// 	c, err := a.Node.Dlf(hval)
-// 	if err != nil {
-// 		log.Printf("[ERR] Download failed for %s: %v", hval[:8], err)
-// 		http.Error(w, "File not found in network", http.StatusNotFound)
-// 		return
-// 	}
-// 	defer c.Close()
+	err := a.Node.Dlf(fhash)
+	if err != nil {
+		log.Printf("[ui] download error: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-// 	man, _ := a.Node.DbStorage.GetManfh(hval, models.Bucketvirtual)
-// 	if man != nil {
-// 		w.Header().Set("Content-Disposition", "attachment; filename=\""+url.PathEscape(man.Title)+"\"")
-// 		w.Header().Set("Content-Length", fmt.Sprintf("%d", man.FileSize))
-// 	} else {
-// 		w.Header().Set("Content-Disposition", "attachment; filename=\""+hval+"\"")
-// 	}
-
-// 	w.Header().Set("Content-Type", "application/octet-stream")
-
-// 	_, err = io.Copy(w, c)
-// 	if err != nil {
-// 		log.Printf("[ERR] Stream error for %s: %v", hval[:8], err)
-// 	}
-// }
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("download complete"))
+}
