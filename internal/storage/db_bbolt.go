@@ -90,7 +90,7 @@ func (s *InternalStorage) GetManfh(fhash string, bucket string) (*models.Manifes
 	return &m, err
 }
 
-func (s *InternalStorage) DeleteMan(hash string, bucket string) (string, error) {
+func (s *InternalStorage) DeleteMan(hash string, bucket string) error {
 	var fh string
 
 	err := s.DB.Update(func(tx *bbolt.Tx) error {
@@ -123,7 +123,7 @@ func (s *InternalStorage) DeleteMan(hash string, bucket string) (string, error) 
 		return nil
 	})
 
-	return fh, err
+	return err
 }
 
 func (s *InternalStorage) GetHashesList() ([]string, error) {

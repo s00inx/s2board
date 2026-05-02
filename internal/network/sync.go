@@ -11,7 +11,7 @@ import (
 func (n *Node) syncvirtual() {
 	m := n.getrhashes()
 	if len(m) == 0 {
-		log.Printf("[sync] nothing to sync")
+		log.Printf("[sync] nothing to sync -> skipped")
 		return
 	}
 
@@ -26,11 +26,11 @@ func (n *Node) syncvirtual() {
 
 	for pid, hs := range tasks {
 		p, exists := n.peers.getpeer(pid)
-		if !exists {
-			continue
+		if !exists || p.IP == "" || p.Port == 0 {
+			return
 		}
 
-		found, err := n.fetchmans(p, hs)
+		found, err := n.Fetch(p, hs)
 		if err != nil {
 			log.Println(err)
 			continue
@@ -38,7 +38,7 @@ func (n *Node) syncvirtual() {
 
 		for _, m := range found {
 			if m.Verify() {
-				n.DbStorage.Save2db(m, models.Bucketvirtual)
+				n.InternalStorage.Save2db(m, models.Bucketvirtual)
 				n.mpeers.add(m.Hash, p.UID)
 			}
 		}
@@ -50,7 +50,7 @@ func (n *Node) getrhashes() []string {
 	n.mpeers.mu.RLock()
 
 	for h := range n.mpeers.d {
-		if !n.DbStorage.NoteExist(h) {
+		if !n.InternalStorage.NoteExist(h) {
 			t = append(t, h)
 		}
 	}
@@ -60,13 +60,17 @@ func (n *Node) getrhashes() []string {
 
 // get list if all hashes
 func (n *Node) getSyncList() ([]string, error) {
-	return n.DbStorage.GetHashesList()
+	return n.InternalStorage.GetHashesList()
 }
 
+// forget about peer when it leave the network
 func (n *Node) forgetpeer(puid string) {
+	log.Printf("[sync] peer %s left -> syncing", puid[:8])
+	oh := n.mpeers.droppeer(puid)
+	if len(oh) > 0 {
+		log.Printf("%d hashes unavailable after %s leave", len(oh), puid[:8])
+	}
 
-	n.mpeers.droppeer(puid)
 	n.peers.rm(puid)
-
-	go n.syncvirtual()
+	n.syncvirtual()
 }

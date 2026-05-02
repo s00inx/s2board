@@ -15,24 +15,15 @@ import (
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// file request payload struct
-type FileReqpl struct {
-	Fh     string
-	Offset int
-	// Size   int
-}
-
 // download file from available peers
 func (n *Node) Dlf(fhash string) error {
 	if n.FileStorage.FileExists(fhash) {
 		return nil
 	}
 
-	mh, err := n.DbStorage.GetManfh(fhash, models.Bucketlocal)
-	fmt.Println(n.mpeers.d, mh.Hash)
+	mh, err := n.InternalStorage.GetManfh(fhash, models.Bucketlocal)
 
 	peers, ok := n.mpeers.getpeerlist(mh.Hash)
-	fmt.Println(peers)
 	if !ok {
 		return fmt.Errorf("file not found in network")
 	}
@@ -48,7 +39,7 @@ func (n *Node) Dlf(fhash string) error {
 
 	log.Printf("[download] req file %s from %s", fhash[:8], p.Name)
 
-	newreq := FileReqpl{
+	newreq := filereqpl{
 		Fh:     fhash,
 		Offset: 0,
 	}
@@ -62,7 +53,7 @@ func (n *Node) Dlf(fhash string) error {
 		return err
 	}
 
-	fb := FileResppl{}
+	fb := fileresppl{}
 	err = n.Codec.Decode(respp.Payload, &fb)
 	if err != nil {
 		return err
@@ -90,33 +81,23 @@ func (n *Node) Createf(src, title, desc string) (*models.Manifest, error) {
 	}
 	man.Hash = hex.EncodeToString(man.CalcID())
 
-	n.DbStorage.Save2db(*man, models.Bucketvirtual)
-	if err = n.DbStorage.Save2db(*man, models.Bucketlocal); err != nil {
+	n.InternalStorage.Save2db(*man, models.Bucketvirtual)
+	if err = n.InternalStorage.Save2db(*man, models.Bucketlocal); err != nil {
 		return nil, err
 	}
 
 	mb, _ := n.Codec.Encode(man)
-	np := models.NewPacket(mb, models.Actsave, n.UID, n.PrivateK)
-	go n.Transport.Broadcastp(np, n.GetConns())
+	np := models.NewPacket(mb, models.ActCreate, n.UID, n.PrivateK)
+	n.Transport.Broadcastp(np, n.getConns())
 
 	return man, nil
 }
 
-type Hspl struct {
-	Name   string   `json:"name"`
-	UID    string   `json:"uid"`
-	Hashes []string `json:"hashes"`
-}
-
 // node <-> node first data exchange (pub key, name and lacal hashes list)
 func (n *Node) Handshakew(ip string, port int, action models.Actcode) {
-	if port == n.Port {
-		return
-	}
-
 	// building self hello packet
 	hsbytes, _ := n.getSyncList()
-	pl := Hspl{
+	pl := syncpl{
 		Name:   n.PubName,
 		UID:    n.UID,
 		Hashes: hsbytes,
@@ -132,12 +113,12 @@ func (n *Node) Handshakew(ip string, port int, action models.Actcode) {
 	}
 
 	// waiting for helloack, so drop other packets
-	if hellopacket.Action != models.ActHelloAck {
+	if hellopacket.Action != models.ActRespHello {
 		log.Println("[sync] invalid packet: want HelloAck")
 		return
 	}
 
-	var hellopl Hspl
+	var hellopl syncpl
 	err = n.Codec.Decode(hellopacket.Payload, &hellopl)
 	if err != nil {
 		log.Println(err)
@@ -151,24 +132,19 @@ func (n *Node) Handshakew(ip string, port int, action models.Actcode) {
 		LastSeen: time.Now(),
 	}
 
-	log.Print("\nnew neighbour: ", nei, "\n\n")
-
 	n.peers.add(nei)
 	for _, h := range hellopl.Hashes {
 		n.mpeers.add(h, nei.UID)
 	}
 
-	log.Printf("[sync] handshake with peer %s:%d", ip, port)
-
-	go func() {
-		time.Sleep(time.Millisecond * 200)
-		n.syncvirtual()
-	}()
+	log.Printf("[sync] handshake with %s:%d / %s", ip, port, hellopl.Name)
+	n.syncvirtual()
 }
 
 // fetch batch of manifests from peers
-func (n *Node) fetchmans(p Peer, h []string) ([]models.Manifest, error) {
-	log.Printf("[sync] fetching %d manifests from peer %s (%s)", len(h), p.UID[:8], p.Name)
+func (n *Node) Fetch(p Peer, h []string) ([]models.Manifest, error) {
+	log.Printf("[sync] %d from %s (%s)", len(h), p.UID[:8], p.Name)
+
 	data, err := n.Codec.Encode(h)
 	if err != nil {
 		log.Println(err)
@@ -176,36 +152,54 @@ func (n *Node) fetchmans(p Peer, h []string) ([]models.Manifest, error) {
 	}
 
 	reqp := models.NewPacket(data, models.ActReqM, n.UID, n.PrivateK)
-	inc, _ := n.Transport.Sendp(p.IP, p.Port, reqp)
+	inc, err := n.Transport.Sendp(p.IP, p.Port, reqp)
+	if err != nil {
+		log.Println("transport incp error: ", err)
+		return nil, err
+	}
 
 	var pl []models.Manifest
 	if err := n.Codec.Decode(inc.Payload, &pl); err != nil {
 		return nil, err
 	}
 
+	log.Printf("[sync] -> %d/%d from %s", len(pl), len(h), inc.Senderuid[:8])
+
 	return pl, nil
 }
 
-type Delpl struct {
-	Mhash string
-}
-
-func (n *Node) Delf(mhash string) {
-	delpl, err := n.Codec.Encode(Delpl{
+func (n *Node) Delf(mhash string) error {
+	delppl, err := n.Codec.Encode(delpl{
 		Mhash: mhash,
 	})
 
 	if err != nil {
-		return
+		return fmt.Errorf("")
 	}
 
-	delp := models.NewPacket(delpl, models.Actdel, n.UID, n.PrivateK)
-	n.Transport.Broadcastp(delp, n.GetConns())
+	mh, err := n.InternalStorage.GetManh(mhash, models.Bucketvirtual)
+	if err != nil {
+		return fmt.Errorf("")
+	}
+
+	if mh.AuthorUID != n.UID {
+		return fmt.Errorf("[delete] user is not author -> forbidden")
+	}
+
+	delp := models.NewPacket(delppl, models.ActDelete, n.UID, n.PrivateK)
+	n.Transport.Broadcastp(delp, n.getConns())
+
+	n.deletef(mhash, n.UID)
+
+	return nil
 }
 
+// send Bye packet to all peers (not wait for ack, only leave the network)
 func (n *Node) Byew() {
-	log.Printf("[bye] node say bye")
+	byeconns := n.getConns()
 
-	byep := models.NewPacket([]byte{}, models.Actbye, n.UID, n.PrivateK)
-	n.Transport.Broadcastp(byep, n.GetConns())
+	log.Printf("[sync] saying Bye to %d peers", len(byeconns))
+
+	byep := models.NewPacket([]byte{}, models.ActBye, n.UID, n.PrivateK)
+	n.Transport.Broadcastp(byep, byeconns)
 }

@@ -47,19 +47,20 @@ func (a *App) Run() {
 		log.Fatal("[FATAL] node connect error: ", err)
 	}
 	Node.Codec = codec.JSONCodec{}
-	Node.DbStorage = ist
+	Node.InternalStorage = ist
 	Node.FileStorage = est
 	a.Node = Node
 
 	// cleanup node local databases
-	a.Node.DbStorage.Cleanvb()
-	a.Node.DbStorage.InitLocal()
+	a.Node.InternalStorage.Cleanvb()
+	a.Node.InternalStorage.InitLocal()
 
 	// get a net interface to link node <-> interface
-	liface, _ := network.GetLocalIface()
+	liface, ipstr := network.GetLocalIface()
 	if liface == nil {
 		log.Println("[WARN] could not find valid net interface, using localhost")
 	}
+	a.Node.IP = ipstr
 
 	// url := fmt.Sprintf("http://%s:%d", ipstr, a.cfg.Port)
 	tr := &transport.HTTPTransport{
@@ -98,8 +99,10 @@ func (a *App) setupRoutes() *http.ServeMux {
 
 	// FRONTEND simple endpoints
 	mux.HandleFunc("GET /api/getpeers", a.getpeersh)
+	mux.HandleFunc("GET /api/me", a.meh)
 	mux.HandleFunc("POST /api/create", a.createh)
 	mux.HandleFunc("GET /api/dl/{hash}", a.dlhandler)
+	mux.HandleFunc("GET /api/del/{hash}", a.p2pdelhandler)
 
 	return mux
 }

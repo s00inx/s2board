@@ -66,7 +66,7 @@ func (a *App) createh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {
-	conns := a.Node.GetConns()
+	conns := a.Node.GetConnsF()
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(conns); err != nil {
@@ -95,4 +95,24 @@ func (a *App) dlhandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("download complete"))
+}
+
+// GET /api/del/{hash}
+func (a *App) p2pdelhandler(w http.ResponseWriter, r *http.Request) {
+	mh := r.PathValue("hash")
+	if mh == "" {
+		http.Error(w, "hash is required", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("[ui] delete request for hash: %s", mh)
+
+	err := a.Node.Delf(mh)
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("delete complete"))
 }

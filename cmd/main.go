@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/s00inx/s2board/internal"
 )
@@ -31,13 +32,9 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// 3. БЛОКИРУЕМ main здесь. Программа будет стоять и ждать, пока в канал придет сигнал
 	sig := <-sigChan
-	log.Printf("Received signal: %v. Shutting down...", sig)
 	app.Node.Byew()
 
-	// 4. После того как сигнал пришел — выполняем завершающие действия
-	// Используем http.Client{} напрямую или создаем с таймаутом, чтобы не висеть вечно
-	// app.Node.NodeBye(http.Client{})
-
+	log.Printf("Received signal: %v. Shutting down...", sig)
+	time.Sleep(200 * time.Millisecond)
 }

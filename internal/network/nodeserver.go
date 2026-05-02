@@ -16,29 +16,33 @@ import (
 const mindlsize = 1
 
 // receive file from p2ppacket from net
-func (n *Node) Recvf(m *models.Manifest) {
+func (n *Node) recvf(incp *models.P2PPacket) error {
+	m := models.Manifest{}
+	if err := n.Codec.Decode(incp.Payload, &m); err != nil {
+		return err
+	}
+
 	if !m.Verify() {
-		return
+		return fmt.Errorf("")
 	}
 
 	// save to virtual
-	n.DbStorage.Save2db(*m, models.Bucketvirtual)
+	n.InternalStorage.Save2db(m, models.Bucketvirtual)
 
 	// if filesize is small, save to local
 	if m.FileSize < mindlsize || !n.FileStorage.FileExists(m.FileHash) {
 		n.FileStorage.Save2disk(m.FileHash)
-		n.DbStorage.Save2db(*m, models.Bucketlocal)
+		n.InternalStorage.Save2db(m, models.Bucketlocal)
 	}
+
+	return nil
 }
 
 // receive a hello packet -> send ack packet, finalize handshake
 // (rmaddr and port of dst node)
-func (n *Node) RecvHandshakef(reqp *models.P2PPacket, rmaddr string, port int) (*models.P2PPacket, error) {
-	if reqp.Action != models.ActHello {
-		return nil, fmt.Errorf("")
-	}
-
-	var reqpl Hspl
+func (n *Node) recvHandshakef(reqp *models.P2PPacket, rmaddr string, port int) (*models.P2PPacket, error) {
+	log.Printf("[sync] handshake req from %s -> respond", reqp.Senderuid[:8])
+	var reqpl syncpl
 	if err := n.Codec.Decode(reqp.Payload, &reqpl); err != nil {
 		return nil, fmt.Errorf("[handshake] invalid req packet payload")
 	}
@@ -57,23 +61,17 @@ func (n *Node) RecvHandshakef(reqp *models.P2PPacket, rmaddr string, port int) (
 	}
 
 	myhashes, _ := n.getSyncList()
-	resppl, _ := n.Codec.Encode(Hspl{
+	resppl, _ := n.Codec.Encode(syncpl{
 		Name:   n.PubName,
 		Hashes: myhashes,
 	})
 
-	go n.syncvirtual()
-
-	return models.NewPacket(resppl, models.ActHelloAck, n.UID, n.PrivateK), nil
+	n.syncvirtual()
+	return models.NewPacket(resppl, models.ActRespHello, n.UID, n.PrivateK), nil
 }
 
 // receive ActReqM packet and send list of mans
-func (n *Node) recvfetchmans(incp *models.P2PPacket) (*models.P2PPacket, error) {
-	if incp.Action != models.ActReqM {
-		log.Printf("want: ReqM, recv: %d", incp.Action)
-		return nil, fmt.Errorf("")
-	}
-
+func (n *Node) recvFetch(incp *models.P2PPacket) (*models.P2PPacket, error) {
 	var want []string
 	if err := n.Codec.Decode(incp.Payload, &want); err != nil {
 		return nil, err
@@ -81,9 +79,9 @@ func (n *Node) recvfetchmans(incp *models.P2PPacket) (*models.P2PPacket, error) 
 
 	found := make([]*models.Manifest, 0, len(want))
 	for _, h := range want {
-		raw, _ := n.DbStorage.GetManh(h, models.Bucketlocal)
+		raw, _ := n.InternalStorage.GetManh(h, models.Bucketlocal)
 		if raw == nil {
-			raw, _ = n.DbStorage.GetManh(h, models.Bucketvirtual)
+			raw, _ = n.InternalStorage.GetManh(h, models.Bucketvirtual)
 		}
 
 		if raw != nil {
@@ -102,19 +100,9 @@ func (n *Node) recvfetchmans(incp *models.P2PPacket) (*models.P2PPacket, error) 
 	return respp, nil
 }
 
-// node A req file -> respond
-type FileResppl struct {
-	Fh    string
-	Bytes []byte
-}
-
 // receive ActReqF packet
-func (n *Node) RecvDlf(reqp *models.P2PPacket, addr string) (*models.P2PPacket, error) {
-	if reqp.Action != models.ActReqF {
-		return nil, fmt.Errorf("")
-	}
-
-	pl := FileReqpl{}
+func (n *Node) recvDlf(reqp *models.P2PPacket, addr string) (*models.P2PPacket, error) {
+	pl := filereqpl{}
 	err := n.Codec.Decode(reqp.Payload, &pl)
 
 	if err != nil {
@@ -130,7 +118,7 @@ func (n *Node) RecvDlf(reqp *models.P2PPacket, addr string) (*models.P2PPacket, 
 	// for MVP
 	fbytes, _ := io.ReadAll(file)
 
-	new := FileResppl{
+	new := fileresppl{
 		Bytes: fbytes,
 	}
 	respp, err := n.Codec.Encode(&new)
@@ -142,35 +130,17 @@ func (n *Node) RecvDlf(reqp *models.P2PPacket, addr string) (*models.P2PPacket, 
 }
 
 // recv ActDel packet
-func (n *Node) RecvDelf(incp *models.P2PPacket) error {
-	if incp.Action != models.Actdel {
-		return fmt.Errorf("")
-	}
-
-	pl := Delpl{}
+func (n *Node) recvDelf(incp *models.P2PPacket) error {
+	pl := delpl{}
 	if err := n.Codec.Decode(incp.Payload, &pl); err != nil {
 		return fmt.Errorf("")
 	}
 
-	mh, _ := n.DbStorage.GetManh(pl.Mhash, models.Bucketvirtual)
-
-	if incp.Senderuid != mh.AuthorUID {
-		return fmt.Errorf("403")
-	}
-
-	n.DbStorage.DeleteMan(pl.Mhash, models.Bucketlocal)
-	n.DbStorage.DeleteMan(pl.Mhash, models.Bucketvirtual)
-
-	n.mpeers.dropfh(pl.Mhash)
-
-	return n.FileStorage.DeleteFile(mh.FileHash)
+	return n.deletef(pl.Mhash, incp.Senderuid)
 }
 
-func (n *Node) RecvByep(incp *models.P2PPacket) error {
-	if incp.Action != models.Actbye {
-		return fmt.Errorf("")
-	}
-
+// receive Bye Packet, only remove peer from all peer lists
+func (n *Node) recvByep(incp *models.P2PPacket) error {
 	n.forgetpeer(incp.Senderuid)
 
 	return nil

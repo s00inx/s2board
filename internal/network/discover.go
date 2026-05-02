@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"time"
 
 	"github.com/grandcat/zeroconf"
 	"github.com/s00inx/s2board/internal/models"
@@ -37,8 +36,6 @@ func (n *Node) Discover(ctx context.Context) {
 				// first ipv4
 				if len(entry.AddrIPv4) > 0 {
 					targetip = entry.AddrIPv4[0].String()
-				} else if len(entry.AddrIPv6) > 0 { // then ipv6 bc it may be incompatible
-					targetip = fmt.Sprintf("[%s]", entry.AddrIPv6[0].String())
 				} else {
 					continue
 				}
@@ -47,9 +44,8 @@ func (n *Node) Discover(ctx context.Context) {
 					continue
 				}
 
-				time.Sleep(500 * time.Millisecond)
+				log.Printf("[net] found on %s:%d -> trying handshake...", targetip, entry.Port)
 				go n.Handshakew(targetip, entry.Port, models.ActHello)
-				log.Printf("found peer on %s:%d", targetip, entry.Port)
 			}
 		}
 	}()
@@ -60,13 +56,13 @@ func (n *Node) Discover(ctx context.Context) {
 	}
 }
 
-func (n *Node) GetConns() []string {
-	n.peers.mu.Lock() // Используем RLock, так как мы только читаем
+func (n *Node) getConns() []string {
+	n.peers.mu.Lock()
 	defer n.peers.mu.Unlock()
 
 	addrs := make([]string, 0, len(n.peers.d))
 	for _, p := range n.peers.d {
-		if p.IP == n.IP && p.Port == n.Port {
+		if p.UID == n.UID {
 			continue
 		}
 
@@ -125,4 +121,15 @@ func GetLocalIface() (*net.Interface, string) {
 	}
 	// ?? maybe panic here
 	return nil, "127.0.0.1"
+}
+
+func (n *Node) GetConnsF() []Peer {
+	peers := n.getConns()
+
+	result := make([]Peer, 0, len(peers))
+	for _, p := range peers {
+		result = append(result, n.peers.d[p])
+	}
+
+	return result
 }

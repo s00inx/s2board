@@ -16,7 +16,7 @@ type NodeInternalStorage interface {
 	GetManfh(fhash string, bucket string) (*models.Manifest, error)
 	NoteExist(hash string) bool
 	Cleanvb() error
-	DeleteMan(hash string, bucket string) (string, error)
+	DeleteMan(hash string, bucket string) error
 	InitLocal() error
 }
 

@@ -18,13 +18,13 @@ type Actcode uint8
 
 const (
 	// files
-	Actsave Actcode = iota + 1
-	Actdel
+	ActCreate Actcode = iota + 1
+	ActDelete
 
 	// sync & hello/bye
 	ActHello
-	ActHelloAck
-	Actbye
+	ActRespHello
+	ActBye
 	ActSync
 
 	// exchange

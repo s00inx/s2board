@@ -21,20 +21,23 @@ type Node struct {
 	PrivateK ed25519.PrivateKey
 	UID      string
 
+	// node public properties
 	IP      string
 	Port    int
 	PubName string
 
-	DbStorage   storage.NodeInternalStorage
-	FileStorage storage.NodeExternalStorage
-	Codec       codec.Codec
-	Transport   transport.Transport
+	// node modules
+	InternalStorage storage.NodeInternalStorage
+	FileStorage     storage.NodeExternalStorage
+	Codec           codec.Codec
+	Transport       transport.Transport
 
-	peers  *peermap
+	// in-memory maps for peers
+	peers  *peertable
 	mpeers *mhtable
 }
 
-// unified process logic for p2p packets (in -> process -> out)
+// unified process logic for p2p packets (in -> process -> out/error)
 // this func is only business-logic dispatcher
 func (n *Node) ProcessPacket(incp *models.P2PPacket) (*models.P2PPacket, error) {
 	if !incp.Verify() {
@@ -45,25 +48,23 @@ func (n *Node) ProcessPacket(incp *models.P2PPacket) (*models.P2PPacket, error) 
 
 	switch incp.Action {
 	case models.ActHello:
-		return n.RecvHandshakef(incp, peer.IP, peer.Port)
+		return n.recvHandshakef(incp, peer.IP, peer.Port)
 
-	case models.Actsave:
-		var man models.Manifest
-		n.Codec.Decode(incp.Payload, &man)
-		n.Recvf(&man)
-		return nil, nil
+	case models.ActCreate:
+		return nil, n.recvf(incp)
 
 	case models.ActReqM:
-		return n.recvfetchmans(incp)
+		return n.recvFetch(incp)
 
 	case models.ActReqF:
-		return n.RecvDlf(incp, fmt.Sprintf("%s:%d", peer.IP, peer.Port))
+		return n.recvDlf(incp, fmt.Sprintf("%s:%d", peer.IP, peer.Port))
 
-	case models.Actdel:
-		return nil, n.RecvDelf(incp)
+	case models.ActDelete:
+		return nil, n.recvDelf(incp)
 
-	case models.Actbye:
-		return nil, n.RecvByep(incp)
+	case models.ActBye:
+		log.Printf("%s said bye", incp.Senderuid)
+		return nil, n.recvByep(incp)
 
 	default:
 		return nil, fmt.Errorf("unknown action")
@@ -99,14 +100,39 @@ func ConnNode(prkpath string, port int, name string) (*Node, error) {
 		}
 	}
 
-	log.Printf("[init] node connected")
+	// log.Printf("[init] node connected")
 	return &Node{
 		PublicK:  pub,
 		PrivateK: priv,
 		UID:      hex.EncodeToString(pub),
 		Port:     port,
 		PubName:  name,
-		peers:    newpeermap(),
+		peers:    newpt(),
 		mpeers:   newmpeertable(),
 	}, nil
+}
+
+// delete manifest and file safe
+func (n *Node) deletef(mhash, senderuid string) error {
+	mh, err := n.InternalStorage.GetManh(mhash, models.Bucketvirtual)
+	if err != nil || mh == nil {
+		return err
+	}
+
+	if senderuid != mh.AuthorUID {
+		return fmt.Errorf("[del] user is not author")
+	}
+
+	err = n.InternalStorage.DeleteMan(mhash, models.Bucketlocal)
+	err = n.InternalStorage.DeleteMan(mhash, models.Bucketvirtual)
+	if err != nil {
+		return err
+	}
+
+	n.mpeers.dropfh(mhash)
+
+	if mh.FileHash != "" {
+		return n.FileStorage.DeleteFile(mh.FileHash)
+	}
+	return nil
 }

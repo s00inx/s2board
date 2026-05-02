@@ -59,7 +59,7 @@
             <input type="text" id="author-name" placeholder="погоняло (по умолчанию - имя ноды)" style="flex: 1;">
             <input type="file" id="file" style="flex: 1;">
         </div>
-        <button type="submit" id="submitBtn">Черкануть!</button>
+        <button type="submit" id="submitBtn">Создать</button>
     </form>
 </div>
 
@@ -67,9 +67,8 @@
 <div id="feed"></div>
 
 <script>
-    let myUID = ""; // Сюда сохраним ID нашей ноды
+    let myUID = ""; 
 
-    // Узнаем свой UID у бэкенда
     async function getMe() {
         try {
             const r = await fetch('/api/me');
@@ -85,6 +84,9 @@
         try {
             const r = await fetch('/api/getpeers');
             const peers = await r.json();
+
+            console.log(peers)
+
             const el = document.getElementById('peers-list');
             
             if (!peers || peers.length === 0) {
@@ -128,7 +130,6 @@
             }
 
             el.innerHTML = data.reverse().map(m => {
-                // Проверяем авторство
                 const isAuthor = (m.author === myUID);
 
                 return `
@@ -141,7 +142,7 @@
                     <div class="meta">
                         ОТ: ${m.author_name || 'Аноним'} ${isAuthor ? '<span class="author-badge">Вы</span>' : ''} 
                         ${m.size > 0 ? `| РАЗМЕР: ${(m.size / 1024).toFixed(1)} KB` : ''}<br>
-                        HASH: ${m.hash.substring(0,16)}
+                        HASH: ${m.hash}
                     </div>
                     ${isAuthor ? `<button class="btn-del" onclick="deletePost('${m.hash}')">Удалить</button>` : ''}
                 </div>
