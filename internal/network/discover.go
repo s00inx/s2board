@@ -45,7 +45,7 @@ func (n *Node) Discover(ctx context.Context) {
 				}
 
 				log.Printf("[net] found on %s:%d -> trying handshake...", targetip, entry.Port)
-				go n.Handshakew(targetip, entry.Port, models.ActHello)
+				go n.Handshakew(targetip, entry.Port, models.ActHelloSyn)
 			}
 		}
 	}()

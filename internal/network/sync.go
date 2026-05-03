@@ -2,21 +2,18 @@
 package network
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// sync virtual board (frontend view) and internal database
+// async virtual board (frontend view) and internal database
 func (n *Node) syncvirtual() {
 	m := n.getrhashes()
 	if len(m) == 0 {
 		log.Printf("[sync] nothing to sync -> skipped")
 		return
 	}
-
-	fmt.Println("sync array: ", m)
 
 	tasks := make(map[string][]string)
 	for _, mh := range m {
@@ -30,6 +27,7 @@ func (n *Node) syncvirtual() {
 	for pid, hs := range tasks {
 		p, exists := n.peers.getpeer(pid)
 		if !exists || p.IP == "" || p.Port == 0 {
+			log.Printf("[sync] peer %s not found in active peers table!", pid[:8])
 			continue
 		}
 
@@ -41,8 +39,13 @@ func (n *Node) syncvirtual() {
 
 		for _, m := range found {
 			if m.Verify() {
-				n.InternalStorage.Save2db(m, models.Bucketvirtual)
+				err := n.InternalStorage.Save2db(m, models.Bucketvirtual)
+				if err != nil {
+					log.Printf("error saving a file")
+					return
+				}
 				n.mpeers.add(m.Hash, p.UID)
+				log.Println("m verified", m)
 			}
 		}
 	}
@@ -63,7 +66,7 @@ func (n *Node) getrhashes() []string {
 }
 
 // get list if all hashes
-func (n *Node) getSyncList() ([]string, error) {
+func (n *Node) getsynclist() ([]string, error) {
 	return n.InternalStorage.GetHashesList(models.Bucketlocal)
 }
 
@@ -79,12 +82,17 @@ func (n *Node) forgetpeer(puid string) {
 	go n.syncbye(oh)
 }
 
+// async virtual board and orphaned hashes after peer leave
 func (n *Node) syncbye(hl []string) {
+	var rmh int
 	for _, hash := range hl {
 		rmpeers, _ := n.mpeers.getpeerlist(hash)
 
-		if len(rmpeers) == 0 {
+		if len(rmpeers) == 0 && !n.InternalStorage.NoteExist(hash) {
+			rmh++
 			n.InternalStorage.DeleteMan(hash, models.Bucketvirtual)
 		}
 	}
+
+	log.Printf("[sync] removed %d/%d hashes", rmh, len(hl))
 }

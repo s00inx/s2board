@@ -104,5 +104,9 @@ func (a *App) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("GET /api/dl/{hash}", a.dlhandler)
 	mux.HandleFunc("GET /api/del/{hash}", a.p2pdelhandler)
 
+	mux.HandleFunc("GET /api/mpeers", func(w http.ResponseWriter, r *http.Request) {
+		a.Node.Codec.EncodeStream(w, a.Node.GetMpeers())
+	})
+
 	return mux
 }

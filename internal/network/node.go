@@ -39,25 +39,25 @@ type Node struct {
 
 // unified process logic for p2p packets (in -> process -> out/error)
 // this func is only business-logic dispatcher
-func (n *Node) ProcessPacket(incp *models.P2PPacket) (*models.P2PPacket, error) {
+func (n *Node) ProcessPacket(incp *models.P2PPacket, rmaddr string) (*models.P2PPacket, error) {
 	if !incp.Verify() {
 		return nil, fmt.Errorf("invalid sig -> denied")
 	}
 
-	peer, _ := n.peers.getpeer(incp.Senderuid)
+	if incp.Action == models.ActHelloSyn {
+		return n.recvHandshakef(incp, rmaddr)
+	}
 
 	switch incp.Action {
-	case models.ActHello:
-		return n.recvHandshakef(incp, peer.IP, peer.Port)
 
 	case models.ActCreate:
-		return nil, n.recvf(incp)
+		return nil, n.recvCreatef(incp)
 
 	case models.ActReqM:
 		return n.recvFetch(incp)
 
 	case models.ActReqF:
-		return n.recvDlf(incp, fmt.Sprintf("%s:%d", peer.IP, peer.Port))
+		return n.recvDlf(incp)
 
 	case models.ActDelete:
 		return nil, n.recvDelf(incp)
@@ -134,4 +134,8 @@ func (n *Node) deletef(mhash, senderuid string) error {
 		return n.FileStorage.DeleteFile(mh.FileHash)
 	}
 	return nil
+}
+
+func (n *Node) GetMpeers() map[string][]string {
+	return n.mpeers.d
 }

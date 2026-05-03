@@ -5,6 +5,7 @@ package network
 type syncpl struct {
 	Name   string   `json:"n"`
 	UID    string   `json:"u"`
+	Port   int      `json:"p"`
 	Hashes []string `json:"h,omitempty"`
 }
 

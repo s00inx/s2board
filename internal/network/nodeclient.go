@@ -21,9 +21,15 @@ func (n *Node) Dlf(fhash string) error {
 		return nil
 	}
 
-	mh, err := n.InternalStorage.GetManfh(fhash, models.Bucketlocal)
+	mh, err := n.InternalStorage.GetManfh(fhash, models.Bucketvirtual)
+	if err != nil {
+		log.Printf("no man for fh")
+		return fmt.Errorf("file not found by file hash")
+	}
 
 	peers, ok := n.mpeers.getpeerlist(mh.Hash)
+
+	fmt.Println(mh.Hash, peers, ok)
 	if !ok {
 		return fmt.Errorf("file not found in network")
 	}
@@ -51,6 +57,11 @@ func (n *Node) Dlf(fhash string) error {
 	if err != nil {
 		log.Println(err)
 		return err
+	}
+
+	if !respp.Verify() {
+		log.Printf("[sec] invalid sig from %s:%d -> drop handshake", p.IP, p.Port)
+		return fmt.Errorf("invalid signature")
 	}
 
 	fb := fileresppl{}
@@ -96,14 +107,18 @@ func (n *Node) Createf(src, title, desc string) (*models.Manifest, error) {
 // node <-> node first data exchange (pub key, name and lacal hashes list)
 func (n *Node) Handshakew(ip string, port int, action models.Actcode) {
 	// building self hello packet
-	hsbytes, _ := n.getSyncList()
+	hsbytes, _ := n.getsynclist()
 	pl := syncpl{
 		Name:   n.PubName,
 		UID:    n.UID,
 		Hashes: hsbytes,
 	}
+	pl.Port = n.Port
 
 	pl2send, _ := n.Codec.Encode(pl)
+
+	fmt.Println(pl)
+
 	hellop := models.NewPacket(pl2send, action, n.UID, n.PrivateK)
 
 	hellopacket, err := n.Transport.Sendp(ip, port, hellop)
@@ -112,9 +127,14 @@ func (n *Node) Handshakew(ip string, port int, action models.Actcode) {
 		return
 	}
 
+	if !hellopacket.Verify() {
+		log.Printf("[sec] invalid sig from %s:%d -> drop handshake", ip, port)
+		return
+	}
+
 	// waiting for helloack, so drop other packets
 	if hellopacket.Action != models.ActRespHello {
-		log.Println("[sync] invalid packet: want HelloAck")
+		log.Println("[sync] invalid packet: want RespHello")
 		return
 	}
 
@@ -138,12 +158,15 @@ func (n *Node) Handshakew(ip string, port int, action models.Actcode) {
 	}
 
 	log.Printf("[sync] handshake with %s:%d / %s", ip, port, hellopl.Name)
-	n.syncvirtual()
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		n.syncvirtual()
+	}()
 }
 
 // fetch batch of manifests from peers
 func (n *Node) Fetch(p Peer, h []string) ([]models.Manifest, error) {
-	log.Printf("[sync] %d from %s (%s)", len(h), p.UID[:8], p.Name)
+	log.Printf("[fetch] %d from %s (%s)", len(h), p.UID[:8], p.Name)
 
 	data, err := n.Codec.Encode(h)
 	if err != nil {
@@ -163,7 +186,7 @@ func (n *Node) Fetch(p Peer, h []string) ([]models.Manifest, error) {
 		return nil, err
 	}
 
-	log.Printf("[sync] -> %d/%d from %s", len(pl), len(h), inc.Senderuid[:8])
+	log.Printf("[fetch] -> %d/%d from %s", len(pl), len(h), inc.Senderuid[:8])
 
 	return pl, nil
 }

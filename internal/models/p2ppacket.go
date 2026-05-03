@@ -11,10 +11,10 @@ import (
 
 // unified broadcast packet above tcp for scalable file sharing
 type P2PPacket struct {
-	Action    Actcode `json:"action"`
-	Senderuid string  `json:"sender"`
-	Payload   []byte  `json:"payload"`
-	Signature string  `json:"sig"`
+	Action    Actcode `json:"a"`
+	Senderuid string  `json:"s"`
+	Payload   []byte  `json:"p"`
+	Signature string  `json:"si"`
 }
 
 // build a new packet for broadcast

@@ -75,7 +75,7 @@ func (t *HTTPTransport) Broadcastp(pp *models.P2PPacket, ps []string) {
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				log.Printf("[broadcast] code %d from %s", resp.StatusCode, p)
+				log.Printf("[broadcast] code %d from %s, packet: %v", resp.StatusCode, p, pp)
 			} else {
 				log.Printf("[broadcast] delivered to %s", p)
 			}
@@ -84,7 +84,7 @@ func (t *HTTPTransport) Broadcastp(pp *models.P2PPacket, ps []string) {
 }
 
 // setup node as Server for receiving p2ppackets
-func (t *HTTPTransport) Start(port int, handler func(*models.P2PPacket) (*models.P2PPacket, error)) *http.ServeMux {
+func (t *HTTPTransport) Start(port int, handler func(p *models.P2PPacket, rmaddr string) (*models.P2PPacket, error)) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/p2p", func(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +94,7 @@ func (t *HTTPTransport) Start(port int, handler func(*models.P2PPacket) (*models
 			return
 		}
 
-		resp, err := handler(&incp)
+		resp, err := handler(&incp, r.RemoteAddr)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return

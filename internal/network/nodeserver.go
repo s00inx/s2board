@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 const mindlsize = 1
 
 // receive file from p2ppacket from net
-func (n *Node) recvf(incp *models.P2PPacket) error {
+func (n *Node) recvCreatef(incp *models.P2PPacket) error {
 	m := models.Manifest{}
 	if err := n.Codec.Decode(incp.Payload, &m); err != nil {
 		return err
@@ -28,30 +29,43 @@ func (n *Node) recvf(incp *models.P2PPacket) error {
 
 	// save to virtual
 	n.InternalStorage.Save2db(m, models.Bucketvirtual)
+	log.Printf("manifest %s saved to virtual", m.Title)
+
+	if m.FileSize == 0 {
+		log.Printf("manifest %s saved to local", m.Title)
+		return n.InternalStorage.Save2db(m, models.Bucketlocal)
+	}
 
 	// if filesize is small, save to local
 	if m.FileSize < mindlsize || !n.FileStorage.FileExists(m.FileHash) {
+		log.Printf("manifest %s saved to local", m.Title)
 		n.FileStorage.Save2disk(m.FileHash)
 		n.InternalStorage.Save2db(m, models.Bucketlocal)
 	}
+
+	n.mpeers.add(m.Hash, incp.Senderuid)
 
 	return nil
 }
 
 // receive a hello packet -> send ack packet, finalize handshake
-// (rmaddr and port of dst node)
-func (n *Node) recvHandshakef(reqp *models.P2PPacket, rmaddr string, port int) (*models.P2PPacket, error) {
-	log.Printf("[sync] handshake req from %s -> respond", reqp.Senderuid[:8])
+func (n *Node) recvHandshakef(reqp *models.P2PPacket, rmaddr string) (*models.P2PPacket, error) {
+	if reqp.Senderuid == n.UID {
+		return nil, fmt.Errorf("self-connection")
+	}
+
+	log.Printf("[sync] valid handshake req from %s -> respond", reqp.Senderuid[:8])
 	var reqpl syncpl
 	if err := n.Codec.Decode(reqp.Payload, &reqpl); err != nil {
 		return nil, fmt.Errorf("[handshake] invalid req packet payload")
 	}
 
+	host, _, _ := net.SplitHostPort(rmaddr)
 	nei := Peer{
 		UID:      reqp.Senderuid,
 		Name:     reqpl.Name,
-		IP:       rmaddr,
-		Port:     port,
+		IP:       host,
+		Port:     reqpl.Port,
 		LastSeen: time.Now(),
 	}
 
@@ -60,13 +74,14 @@ func (n *Node) recvHandshakef(reqp *models.P2PPacket, rmaddr string, port int) (
 		n.mpeers.add(h, nei.UID)
 	}
 
-	myhashes, _ := n.getSyncList()
+	myhashes, _ := n.getsynclist()
 	resppl, _ := n.Codec.Encode(syncpl{
 		Name:   n.PubName,
 		Hashes: myhashes,
+		Port:   n.Port,
 	})
 
-	n.syncvirtual()
+	log.Printf("[sync] handshake estabilished with %s:%d (%s)", nei.IP, nei.Port, nei.UID[:8])
 	return models.NewPacket(resppl, models.ActRespHello, n.UID, n.PrivateK), nil
 }
 
@@ -76,6 +91,8 @@ func (n *Node) recvFetch(incp *models.P2PPacket) (*models.P2PPacket, error) {
 	if err := n.Codec.Decode(incp.Payload, &want); err != nil {
 		return nil, err
 	}
+
+	log.Printf("p %s want %d hashes", incp.Senderuid[:8], len(want))
 
 	found := make([]*models.Manifest, 0, len(want))
 	for _, h := range want {
@@ -96,12 +113,13 @@ func (n *Node) recvFetch(incp *models.P2PPacket) (*models.P2PPacket, error) {
 	}
 
 	respp := models.NewPacket(resppl, models.ActRespM, n.UID, n.PrivateK)
+	log.Printf("sent %d hashes", len(found))
 
 	return respp, nil
 }
 
 // receive ActReqF packet
-func (n *Node) recvDlf(reqp *models.P2PPacket, addr string) (*models.P2PPacket, error) {
+func (n *Node) recvDlf(reqp *models.P2PPacket) (*models.P2PPacket, error) {
 	pl := filereqpl{}
 	err := n.Codec.Decode(reqp.Payload, &pl)
 
@@ -133,7 +151,7 @@ func (n *Node) recvDlf(reqp *models.P2PPacket, addr string) (*models.P2PPacket, 
 func (n *Node) recvDelf(incp *models.P2PPacket) error {
 	pl := delpl{}
 	if err := n.Codec.Decode(incp.Payload, &pl); err != nil {
-		return fmt.Errorf("")
+		return nil
 	}
 
 	return n.deletef(pl.Mhash, incp.Senderuid)

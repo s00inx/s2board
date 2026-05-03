@@ -22,7 +22,7 @@ const (
 	ActDelete
 
 	// sync & hello/bye
-	ActHello
+	ActHelloSyn
 	ActRespHello
 	ActBye
 	ActSync

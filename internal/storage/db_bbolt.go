@@ -151,13 +151,19 @@ func (s *InternalStorage) NoteExist(hash string) bool {
 	var exists bool
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(models.Bucketlocal))
-		if b == nil {
-			return nil
+		buckets := [][]byte{
+			[]byte(models.Bucketlocal),
+			[]byte(models.Bucketvirtual),
 		}
 
-		if v := b.Get([]byte(hash)); v != nil {
-			exists = true
+		for _, bn := range buckets {
+			b := tx.Bucket(bn)
+			if b != nil {
+				if v := b.Get([]byte(hash)); v != nil {
+					exists = true
+					return nil
+				}
+			}
 		}
 		return nil
 	})
