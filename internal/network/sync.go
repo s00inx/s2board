@@ -2,13 +2,14 @@
 package network
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/s00inx/s2board/internal/models"
 )
 
 // async virtual board (frontend view) and internal database
-func (n *Node) syncvirtual() {
+func (n *Node) synchello() {
 	m := n.getrhashes()
 	if len(m) == 0 {
 		log.Printf("[sync] nothing to sync -> skipped")
@@ -31,7 +32,7 @@ func (n *Node) syncvirtual() {
 			continue
 		}
 
-		found, err := n.Fetch(p, hs)
+		found, err := n.fetchm(p, hs)
 		if err != nil {
 			log.Println(err)
 			continue
@@ -39,13 +40,15 @@ func (n *Node) syncvirtual() {
 
 		for _, m := range found {
 			if m.Verify() {
-				err := n.InternalStorage.Save2db(m, models.Bucketvirtual)
-				if err != nil {
-					log.Printf("error saving a file")
-					return
+				n.InternalStorage.Save2db(m, models.Bucketvirtual)
+				if m.FileSize == 0 {
+					n.InternalStorage.Save2db(m, models.Bucketlocal)
+					n.mpeers.add(m.Hash, n.UID)
 				}
 				n.mpeers.add(m.Hash, p.UID)
-				log.Println("m verified", m)
+				log.Printf("[sync] manifest %s indexed for peer %s", m.Hash[:8], p.UID[:8])
+			} else {
+				log.Printf("[ERR] manifest %s verification failed!", m.Hash[:8])
 			}
 		}
 	}
@@ -88,11 +91,45 @@ func (n *Node) syncbye(hl []string) {
 	for _, hash := range hl {
 		rmpeers, _ := n.mpeers.getpeerlist(hash)
 
-		if len(rmpeers) == 0 && !n.InternalStorage.NoteExist(hash) {
+		if len(rmpeers) == 0 {
+			m, _ := n.InternalStorage.GetManh(hash, models.Bucketvirtual)
+
+			if m != nil && n.FileStorage.FileExists(m.FileHash) {
+				n.mpeers.add(hash, n.UID)
+				log.Printf("[sync] i am the new source for %s", hash[:8])
+				continue
+			}
+
 			rmh++
 			n.InternalStorage.DeleteMan(hash, models.Bucketvirtual)
 		}
 	}
-
 	log.Printf("[sync] removed %d/%d hashes", rmh, len(hl))
+}
+
+// fetch a batch of manifests from peer
+func (n *Node) fetchm(p Peer, h []string) ([]models.Manifest, error) {
+	log.Printf("[fetch] %d from %s (%s)", len(h), p.UID[:8], p.Name)
+
+	data, err := n.Codec.Encode(h)
+	if err != nil {
+		log.Println(err)
+		return nil, fmt.Errorf("[sync] hashlist encode error")
+	}
+
+	reqp := models.NewPacket(data, models.ActReqM, n.UID, n.PrivateK)
+	inc, err := n.Transport.Sendp(p.IP, p.Port, reqp)
+	if err != nil {
+		log.Println("transport incp error: ", err)
+		return nil, err
+	}
+
+	var pl []models.Manifest
+	if err := n.Codec.Decode(inc.Payload, &pl); err != nil {
+		return nil, err
+	}
+
+	log.Printf("[fetch] -> %d/%d from %s", len(pl), len(h), inc.Senderuid[:8])
+
+	return pl, nil
 }

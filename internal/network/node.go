@@ -45,7 +45,9 @@ func (n *Node) ProcessPacket(incp *models.P2PPacket, rmaddr string) (*models.P2P
 	}
 
 	if incp.Action == models.ActHelloSyn {
-		return n.recvHandshakef(incp, rmaddr)
+		p, err := n.recvHandshakef(incp, rmaddr)
+		go n.synchello()
+		return p, err
 	}
 
 	switch incp.Action {
@@ -64,6 +66,9 @@ func (n *Node) ProcessPacket(incp *models.P2PPacket, rmaddr string) (*models.P2P
 
 	case models.ActBye:
 		return nil, n.recvByep(incp)
+
+	case models.ActDl:
+		return nil, n.recvDl(incp)
 
 	default:
 		return nil, fmt.Errorf("unknown act -> denied")

@@ -27,3 +27,8 @@ type fileresppl struct {
 type delpl struct {
 	Mhash string `json:"mh"`
 }
+
+// notify all peers about peer is new seed for file
+type dlpl struct {
+	Mhash string `json:"mh"`
+}

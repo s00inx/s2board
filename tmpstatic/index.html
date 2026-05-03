@@ -105,18 +105,23 @@
         }
     }
 
-    async function deletePost(hash) {
-        if (!confirm("Удалить запись из сети?")) return;
-        try {
-            const r = await fetch('/api/del', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ hash: hash })
-            });
-            if (r.ok) loadFeed();
-            else alert("Ошибка: возможно, вы не автор этой записи.");
-        } catch (e) { console.error("Ошибка удаления"); }
+async function deletePost(hash) {
+    if (!confirm("Удалить запись из сети?")) return;
+    try {
+        // Используем обратные кавычки `` и аргумент hash
+        const r = await fetch(`/api/del/${hash}`); 
+        
+        if (r.ok) {
+            loadFeed(); // Перезагружаем посты
+        } else {
+            // Если сервер вернул 403 или 500, узнаем причину
+            const errorText = await r.text();
+            alert("Ошибка удаления: " + errorText);
+        }
+    } catch (e) { 
+        console.error("Сетевая ошибка:", e); 
     }
+}
 
     async function loadFeed() {
         try {

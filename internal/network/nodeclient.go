@@ -1,12 +1,11 @@
 // all p2p node as CLIENT logic
-// send packet -> recv response
+// send packet -> recv response / return error/nil
 
 package network
 
 import (
 	"bytes"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -28,8 +27,6 @@ func (n *Node) Dlf(fhash string) error {
 	}
 
 	peers, ok := n.mpeers.getpeerlist(mh.Hash)
-
-	fmt.Println(mh.Hash, peers, ok)
 	if !ok {
 		return fmt.Errorf("file not found in network")
 	}
@@ -70,11 +67,23 @@ func (n *Node) Dlf(fhash string) error {
 		return err
 	}
 
-	return n.FileStorage.SaveFile(fhash, bytes.NewReader(fb.Bytes))
+	err = n.FileStorage.SaveFile(fhash, bytes.NewReader(fb.Bytes))
+	if err != nil {
+		return err
+	}
+
+	dlppl, _ := n.Codec.Encode(dlpl{
+		Mhash: mh.Hash,
+	})
+
+	dlp := models.NewPacket(dlppl, models.ActDl, n.UID, n.PrivateK)
+	n.Transport.Broadcastp(dlp, n.getConns())
+
+	return nil
 }
 
 // upload file from dev TO local network -> broadcast packet
-func (n *Node) Createf(src, title, desc string) (*models.Manifest, error) {
+func (n *Node) Createf(src, title, desc string) error {
 	var fhash string
 	var fsize int64
 	var err error
@@ -82,30 +91,30 @@ func (n *Node) Createf(src, title, desc string) (*models.Manifest, error) {
 	if src != "" {
 		fhash, fsize, err = n.FileStorage.Save2disk(src)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	man := models.NewMan(title, desc, n.UID, n.PubName, fhash, filepath.Base(src), fsize)
 	if err := man.Sign(n.PrivateK); err != nil {
-		return nil, err
+		return err
 	}
 	man.Hash = hex.EncodeToString(man.CalcID())
 
 	n.InternalStorage.Save2db(*man, models.Bucketvirtual)
 	if err = n.InternalStorage.Save2db(*man, models.Bucketlocal); err != nil {
-		return nil, err
+		return err
 	}
 
 	mb, _ := n.Codec.Encode(man)
 	np := models.NewPacket(mb, models.ActCreate, n.UID, n.PrivateK)
 	n.Transport.Broadcastp(np, n.getConns())
 
-	return man, nil
+	return nil
 }
 
-// node <-> node first data exchange (pub key, name and lacal hashes list)
-func (n *Node) Handshakew(ip string, port int, action models.Actcode) {
+// node <-> node first data exchange (pub key, name and local hashes list)
+func (n *Node) Handshakew(ip string, port int, action models.Actcode) error {
 	// building self hello packet
 	hsbytes, _ := n.getsynclist()
 	pl := syncpl{
@@ -116,26 +125,23 @@ func (n *Node) Handshakew(ip string, port int, action models.Actcode) {
 	pl.Port = n.Port
 
 	pl2send, _ := n.Codec.Encode(pl)
-
-	fmt.Println(pl)
-
 	hellop := models.NewPacket(pl2send, action, n.UID, n.PrivateK)
 
 	hellopacket, err := n.Transport.Sendp(ip, port, hellop)
 	if err != nil {
 		log.Println(err)
-		return
+		return err
 	}
 
 	if !hellopacket.Verify() {
 		log.Printf("[sec] invalid sig from %s:%d -> drop handshake", ip, port)
-		return
+		return err
 	}
 
 	// waiting for helloack, so drop other packets
 	if hellopacket.Action != models.ActRespHello {
 		log.Println("[sync] invalid packet: want RespHello")
-		return
+		return err
 	}
 
 	var hellopl syncpl
@@ -157,38 +163,13 @@ func (n *Node) Handshakew(ip string, port int, action models.Actcode) {
 		n.mpeers.add(h, nei.UID)
 	}
 
-	log.Printf("[sync] handshake with %s:%d / %s", ip, port, hellopl.Name)
+	log.Printf("[sync] process handshake with %s:%d (%s)", ip, port, hellopl.Name)
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		n.syncvirtual()
+		n.synchello()
 	}()
-}
 
-// fetch batch of manifests from peers
-func (n *Node) Fetch(p Peer, h []string) ([]models.Manifest, error) {
-	log.Printf("[fetch] %d from %s (%s)", len(h), p.UID[:8], p.Name)
-
-	data, err := n.Codec.Encode(h)
-	if err != nil {
-		log.Println(err)
-		return nil, errors.New("[sync] hashlist encode error")
-	}
-
-	reqp := models.NewPacket(data, models.ActReqM, n.UID, n.PrivateK)
-	inc, err := n.Transport.Sendp(p.IP, p.Port, reqp)
-	if err != nil {
-		log.Println("transport incp error: ", err)
-		return nil, err
-	}
-
-	var pl []models.Manifest
-	if err := n.Codec.Decode(inc.Payload, &pl); err != nil {
-		return nil, err
-	}
-
-	log.Printf("[fetch] -> %d/%d from %s", len(pl), len(h), inc.Senderuid[:8])
-
-	return pl, nil
+	return nil
 }
 
 func (n *Node) Delf(mhash string) error {
@@ -218,11 +199,13 @@ func (n *Node) Delf(mhash string) error {
 }
 
 // send Bye packet to all peers (not wait for ack, only leave the network)
-func (n *Node) Byew() {
+func (n *Node) Byew() error {
 	byeconns := n.getConns()
 
 	log.Printf("[sync] saying Bye to %d peers", len(byeconns))
 
 	byep := models.NewPacket([]byte{}, models.ActBye, n.UID, n.PrivateK)
 	n.Transport.Broadcastp(byep, byeconns)
+
+	return nil
 }

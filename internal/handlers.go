@@ -54,15 +54,12 @@ func (a *App) createh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	man, err := a.Node.Createf(tempPath, title, desc)
+	err = a.Node.Createf(tempPath, title, desc)
 	if err != nil {
 		log.Printf("[ERR] upload failed: %v", err)
 		http.Error(w, "internal p2p error", 500)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(man)
 }
 
 func (a *App) getpeersh(w http.ResponseWriter, r *http.Request) {

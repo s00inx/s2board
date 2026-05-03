@@ -153,7 +153,6 @@ func (s *InternalStorage) NoteExist(hash string) bool {
 	err := s.DB.View(func(tx *bbolt.Tx) error {
 		buckets := [][]byte{
 			[]byte(models.Bucketlocal),
-			[]byte(models.Bucketvirtual),
 		}
 
 		for _, bn := range buckets {

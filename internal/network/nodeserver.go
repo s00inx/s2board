@@ -91,9 +91,6 @@ func (n *Node) recvFetch(incp *models.P2PPacket) (*models.P2PPacket, error) {
 	if err := n.Codec.Decode(incp.Payload, &want); err != nil {
 		return nil, err
 	}
-
-	log.Printf("p %s want %d hashes", incp.Senderuid[:8], len(want))
-
 	found := make([]*models.Manifest, 0, len(want))
 	for _, h := range want {
 		raw, _ := n.InternalStorage.GetManh(h, models.Bucketlocal)
@@ -111,9 +108,7 @@ func (n *Node) recvFetch(incp *models.P2PPacket) (*models.P2PPacket, error) {
 		log.Println(err)
 		return nil, err
 	}
-
 	respp := models.NewPacket(resppl, models.ActRespM, n.UID, n.PrivateK)
-	log.Printf("sent %d hashes", len(found))
 
 	return respp, nil
 }
@@ -161,5 +156,16 @@ func (n *Node) recvDelf(incp *models.P2PPacket) error {
 func (n *Node) recvByep(incp *models.P2PPacket) error {
 	n.forgetpeer(incp.Senderuid)
 
+	return nil
+}
+
+func (n *Node) recvDl(reqp *models.P2PPacket) error {
+	pl := dlpl{}
+
+	if err := n.Codec.Decode(reqp.Payload, &pl); err != nil {
+		return err
+	}
+
+	n.mpeers.add(pl.Mhash, reqp.Senderuid)
 	return nil
 }

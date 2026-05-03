@@ -26,6 +26,7 @@ const (
 	ActRespHello
 	ActBye
 	ActSync
+	ActDl
 
 	// exchange
 	ActReqM
