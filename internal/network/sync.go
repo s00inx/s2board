@@ -1,19 +1,22 @@
-// sync node and peer
+// utils for sync node and peer
 package network
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/s00inx/s2board/internal/models"
 )
 
-// get remaining hashes and sync virtual board
+// sync virtual board (frontend view) and internal database
 func (n *Node) syncvirtual() {
 	m := n.getrhashes()
 	if len(m) == 0 {
 		log.Printf("[sync] nothing to sync -> skipped")
 		return
 	}
+
+	fmt.Println("sync array: ", m)
 
 	tasks := make(map[string][]string)
 	for _, mh := range m {
@@ -27,7 +30,7 @@ func (n *Node) syncvirtual() {
 	for pid, hs := range tasks {
 		p, exists := n.peers.getpeer(pid)
 		if !exists || p.IP == "" || p.Port == 0 {
-			return
+			continue
 		}
 
 		found, err := n.Fetch(p, hs)
@@ -45,6 +48,7 @@ func (n *Node) syncvirtual() {
 	}
 }
 
+// get remaining hashes for sync from mhtable
 func (n *Node) getrhashes() []string {
 	var t []string
 	n.mpeers.mu.RLock()
@@ -60,7 +64,7 @@ func (n *Node) getrhashes() []string {
 
 // get list if all hashes
 func (n *Node) getSyncList() ([]string, error) {
-	return n.InternalStorage.GetHashesList()
+	return n.InternalStorage.GetHashesList(models.Bucketlocal)
 }
 
 // forget about peer when it leave the network
@@ -68,9 +72,19 @@ func (n *Node) forgetpeer(puid string) {
 	log.Printf("[sync] peer %s left -> syncing", puid[:8])
 	oh := n.mpeers.droppeer(puid)
 	if len(oh) > 0 {
-		log.Printf("%d hashes unavailable after %s leave", len(oh), puid[:8])
+		log.Printf("[sync] %d hashes unavailable after %s leave -> removing...", len(oh), puid[:8])
 	}
 
 	n.peers.rm(puid)
-	n.syncvirtual()
+	go n.syncbye(oh)
+}
+
+func (n *Node) syncbye(hl []string) {
+	for _, hash := range hl {
+		rmpeers, _ := n.mpeers.getpeerlist(hash)
+
+		if len(rmpeers) == 0 {
+			n.InternalStorage.DeleteMan(hash, models.Bucketvirtual)
+		}
+	}
 }

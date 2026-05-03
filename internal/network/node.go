@@ -41,7 +41,7 @@ type Node struct {
 // this func is only business-logic dispatcher
 func (n *Node) ProcessPacket(incp *models.P2PPacket) (*models.P2PPacket, error) {
 	if !incp.Verify() {
-		return nil, fmt.Errorf("invalid signature")
+		return nil, fmt.Errorf("invalid sig -> denied")
 	}
 
 	peer, _ := n.peers.getpeer(incp.Senderuid)
@@ -63,11 +63,10 @@ func (n *Node) ProcessPacket(incp *models.P2PPacket) (*models.P2PPacket, error) 
 		return nil, n.recvDelf(incp)
 
 	case models.ActBye:
-		log.Printf("%s said bye", incp.Senderuid)
 		return nil, n.recvByep(incp)
 
 	default:
-		return nil, fmt.Errorf("unknown action")
+		return nil, fmt.Errorf("unknown act -> denied")
 	}
 }
 

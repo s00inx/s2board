@@ -25,10 +25,8 @@ func main() {
 
 	app := internal.NewApp(cfg)
 
-	// 1. Запускаем сервер в фоне
 	go app.Run()
 
-	// 2. Настраиваем канал для перехвата сигналов (Ctrl+C и т.д.)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 

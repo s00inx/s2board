@@ -11,7 +11,7 @@ import (
 type NodeInternalStorage interface {
 	Save2db(man models.Manifest, bucket string) error
 	GetManList() []models.Manifest
-	GetHashesList() ([]string, error)
+	GetHashesList(bucket string) ([]string, error)
 	GetManh(hash string, bucket string) (*models.Manifest, error)
 	GetManfh(fhash string, bucket string) (*models.Manifest, error)
 	NoteExist(hash string) bool

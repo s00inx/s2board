@@ -126,11 +126,11 @@ func (s *InternalStorage) DeleteMan(hash string, bucket string) error {
 	return err
 }
 
-func (s *InternalStorage) GetHashesList() ([]string, error) {
+func (s *InternalStorage) GetHashesList(bucket string) ([]string, error) {
 	var hashes []string
 
 	err := s.DB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(models.Bucketlocal))
+		b := tx.Bucket([]byte(bucket))
 		if b == nil {
 			return nil
 		}
@@ -170,6 +170,7 @@ func (s *InternalStorage) NoteExist(hash string) bool {
 	return exists
 }
 
+// get all manifest lists from virtual bucket
 func (s *InternalStorage) GetManList() []models.Manifest {
 	var manlist []models.Manifest
 
