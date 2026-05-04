@@ -114,7 +114,7 @@ func (n *Node) Createf(src, title, desc string) error {
 }
 
 // node <-> node first data exchange (pub key, name and local hashes list)
-func (n *Node) Handshakew(ip string, port int, action models.Actcode) error {
+func (n *Node) Dialp(ip string, port int, action models.Actcode) error {
 	// building self hello packet
 	hsbytes, _ := n.getsynclist()
 	pl := syncpl{
@@ -172,6 +172,7 @@ func (n *Node) Handshakew(ip string, port int, action models.Actcode) error {
 	return nil
 }
 
+// send delete file notification to all nodes
 func (n *Node) Delf(mhash string) error {
 	delppl, err := n.Codec.Encode(delpl{
 		Mhash: mhash,
@@ -190,7 +191,7 @@ func (n *Node) Delf(mhash string) error {
 		return fmt.Errorf("[delete] user is not author -> forbidden")
 	}
 
-	delp := models.NewPacket(delppl, models.ActDelete, n.UID, n.PrivateK)
+	delp := models.NewPacket(delppl, models.ActDel, n.UID, n.PrivateK)
 	n.Transport.Broadcastp(delp, n.getConns())
 
 	n.deletef(mhash, n.UID)

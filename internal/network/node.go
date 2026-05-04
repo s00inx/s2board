@@ -45,7 +45,7 @@ func (n *Node) ProcessPacket(incp *models.P2PPacket, rmaddr string) (*models.P2P
 	}
 
 	if incp.Action == models.ActHelloSyn {
-		p, err := n.recvHandshakef(incp, rmaddr)
+		p, err := n.recvDialp(incp, rmaddr)
 		go n.synchello()
 		return p, err
 	}
@@ -61,10 +61,11 @@ func (n *Node) ProcessPacket(incp *models.P2PPacket, rmaddr string) (*models.P2P
 	case models.ActReqF:
 		return n.recvDlf(incp)
 
-	case models.ActDelete:
+	case models.ActDel:
 		return nil, n.recvDelf(incp)
 
 	case models.ActBye:
+		log.Printf("recv bye packet from %s", incp.Senderuid[:8])
 		return nil, n.recvByep(incp)
 
 	case models.ActDl:

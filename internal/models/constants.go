@@ -19,7 +19,7 @@ type Actcode uint8
 const (
 	// files
 	ActCreate Actcode = iota + 1
-	ActDelete
+	ActDel
 
 	// sync & hello/bye
 	ActHelloSyn

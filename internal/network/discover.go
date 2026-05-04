@@ -33,7 +33,6 @@ func (n *Node) Discover(ctx context.Context) {
 
 				// parse IP fields of zeroconf entry
 				var targetip string
-				// first ipv4
 				if len(entry.AddrIPv4) > 0 {
 					targetip = entry.AddrIPv4[0].String()
 				} else {
@@ -44,8 +43,17 @@ func (n *Node) Discover(ctx context.Context) {
 					continue
 				}
 
-				log.Printf("[net] found on %s:%d -> trying handshake...", targetip, entry.Port)
-				go n.Handshakew(targetip, entry.Port, models.ActHelloSyn)
+				log.Printf("[net] found on %s:%d", targetip, entry.Port)
+
+				// most naive determinated decision of double-handshake problem -> compare addr strings
+				urldst, urlnode := fmt.Sprintf("%s:%d", targetip, entry.Port), fmt.Sprintf("%s:%d", n.IP, n.Port)
+				if urldst > urlnode {
+					log.Printf("node is handshake senior -> init handshake...")
+					go n.Dialp(targetip, entry.Port, models.ActHelloSyn)
+				} else {
+					log.Printf("node is not senior -> waiting for hello packet...")
+				}
+
 			}
 		}
 	}()

@@ -49,7 +49,7 @@ func (n *Node) recvCreatef(incp *models.P2PPacket) error {
 }
 
 // receive a hello packet -> send ack packet, finalize handshake
-func (n *Node) recvHandshakef(reqp *models.P2PPacket, rmaddr string) (*models.P2PPacket, error) {
+func (n *Node) recvDialp(reqp *models.P2PPacket, rmaddr string) (*models.P2PPacket, error) {
 	if reqp.Senderuid == n.UID {
 		return nil, fmt.Errorf("self-connection")
 	}

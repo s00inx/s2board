@@ -1,12 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
-	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/s00inx/s2board/internal"
 )
@@ -23,16 +22,18 @@ func main() {
 		Name:    *nodeName,
 	}
 
+	// create context for shutdown
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
 	app := internal.NewApp(cfg)
 
-	go app.Run()
+	go app.Run(ctx)
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-ctx.Done()
+	log.Println("Shutting down... waiting for goroutines")
 
-	sig := <-sigChan
-	app.Node.Byew()
-
-	log.Printf("Received signal: %v. Shutting down...", sig)
-	time.Sleep(200 * time.Millisecond)
+	// Даем время на выполнение деферов и Shutdown
+	app.Wait()
+	log.Println("Exit.")
 }

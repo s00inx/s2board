@@ -108,7 +108,5 @@ func (t *HTTPTransport) Start(port int, handler func(p *models.P2PPacket, rmaddr
 			w.WriteHeader(http.StatusOK)
 		}
 	})
-
-	log.Printf("[transport] HTTP server started on :%d", port)
 	return mux
 }

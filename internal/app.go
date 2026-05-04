@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"sync"
 
 	"github.com/s00inx/s2board/internal/codec"
 	"github.com/s00inx/s2board/internal/network"
@@ -24,6 +25,7 @@ type App struct {
 	internalst *storage.InternalStorage
 	extst      *storage.ExternalStorage
 	cfg        *Config
+	wg         sync.WaitGroup
 }
 
 func NewApp(cfg *Config) *App {
@@ -32,7 +34,7 @@ func NewApp(cfg *Config) *App {
 	}
 }
 
-func (a *App) Run() {
+func (a *App) Run(ctx context.Context) {
 	// init storage, find or create deps
 	ist, est, err := storage.Init(a.cfg.DataDir)
 	if err != nil {
@@ -76,11 +78,21 @@ func (a *App) Run() {
 	if err != nil {
 		log.Println("[WARN] mDNS registration failed: ", err)
 	} else {
-		defer mdnsrv.Shutdown()
+		a.wg.Add(1)
+		go func() {
+			defer a.wg.Done()
+			<-ctx.Done()
+			log.Println("[net] stopping mDNS...")
+			mdnsrv.Shutdown()
+		}()
 	}
 
 	// setup node in local network
-	go a.Node.Discover(context.Background())
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		a.Node.Discover(ctx)
+	}()
 
 	// print debug information
 	// fmt.Printf("node UID: %s | local UI: http://%s:%d\n", a.Node.UID[:16], url, a.cfg.Port)
@@ -109,4 +121,8 @@ func (a *App) setupRoutes() *http.ServeMux {
 	})
 
 	return mux
+}
+
+func (a *App) Wait() {
+	a.wg.Wait()
 }
