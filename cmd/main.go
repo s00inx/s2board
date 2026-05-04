@@ -33,7 +33,7 @@ func main() {
 	<-ctx.Done()
 	log.Println("Shutting down... waiting for goroutines")
 
-	// Даем время на выполнение деферов и Shutdown
+	// waiting for all exit proccesses done
 	app.Wait()
 	log.Println("Exit.")
 }

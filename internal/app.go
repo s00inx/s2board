@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/s00inx/s2board/internal/codec"
 	"github.com/s00inx/s2board/internal/network"
@@ -35,68 +36,99 @@ func NewApp(cfg *Config) *App {
 }
 
 func (a *App) Run(ctx context.Context) {
-	// init storage, find or create deps
+	// 1. Инициализация хранилища
 	ist, est, err := storage.Init(a.cfg.DataDir)
 	if err != nil {
-		log.Fatal("storage init error: ", err)
+		log.Fatalf("[FATAL] storage init error: %v", err)
 	}
 	a.internalst = ist
 	a.extst = est
 
-	// setup node on this device
-	Node, err := network.ConnNode(filepath.Join(est.Dir, "node.key"), a.cfg.Port, a.cfg.Name)
+	// 2. Настройка P2P ноды
+	node, err := network.ConnNode(filepath.Join(est.Dir, "node.key"), a.cfg.Port, a.cfg.Name)
 	if err != nil {
-		log.Fatal("[FATAL] node connect error: ", err)
+		log.Fatalf("[FATAL] node connect error: %v", err)
 	}
-	Node.Codec = codec.JSONCodec{}
-	Node.InternalStorage = ist
-	Node.FileStorage = est
-	a.Node = Node
 
-	// cleanup node local databases
+	node.Codec = codec.JSONCodec{}
+	node.InternalStorage = ist
+	node.FileStorage = est
+	a.Node = node
+
+	// Очистка и инициализация локальных данных
 	a.Node.InternalStorage.Cleanvb()
 	a.Node.InternalStorage.InitLocal()
 
-	// get a net interface to link node <-> interface
+	// 3. Сетевая настройка
 	liface, ipstr := network.GetLocalIface()
 	if liface == nil {
 		log.Println("[WARN] could not find valid net interface, using localhost")
 	}
 	a.Node.IP = ipstr
 
-	// url := fmt.Sprintf("http://%s:%d", ipstr, a.cfg.Port)
 	tr := &transport.HTTPTransport{
 		Codec: a.Node.Codec,
 		Port:  a.cfg.Port,
 	}
 	a.Node.Transport = tr
 
+	// 4. Подготовка HTTP сервера
 	mux := a.setupRoutes()
-
-	// setup mDns for local node discovery
-	_, mdnsrv, err := network.InitMdns(liface, a.Node.UID, a.cfg.Name, a.cfg.Port)
-	if err != nil {
-		log.Println("[WARN] mDNS registration failed: ", err)
-	} else {
-		a.wg.Add(1)
-		go func() {
-			defer a.wg.Done()
-			<-ctx.Done()
-			log.Println("[net] stopping mDNS...")
-			mdnsrv.Shutdown()
-		}()
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", a.cfg.Port),
+		Handler: mux,
 	}
 
-	// setup node in local network
+	// 5. Регистрация mDNS
+	_, mdnsrv, err := network.InitMdns(liface, a.Node.UID, a.cfg.Name, a.cfg.Port)
+	if err != nil {
+		log.Println("[WARN] mDNS registration failed:", err)
+	}
+
+	// --- ЗАПУСК ГОРУТИН ---
+
+	// Горутина: Discovery (поиск соседей)
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
+		log.Println("[net] starting discovery...")
 		a.Node.Discover(ctx)
 	}()
 
-	// print debug information
-	// fmt.Printf("node UID: %s | local UI: http://%s:%d\n", a.Node.UID[:16], url, a.cfg.Port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", a.cfg.Port), mux))
+	// Горутина: HTTP Server
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		log.Printf("[http] server listening on %s:%d", ipstr, a.cfg.Port)
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			log.Printf("[ERROR] http server error: %v", err)
+		}
+	}()
+
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		<-ctx.Done()
+
+		log.Println("[app] starting shutdown sequence...")
+
+		if a.Node != nil {
+			log.Println("[p2p] broadcasting Bye-packets to peers...")
+			a.Node.Byew()
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		if mdnsrv != nil {
+			mdnsrv.Shutdown()
+		}
+
+		// ШАГ 3: Гасим сервер
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		server.Shutdown(shutdownCtx)
+
+		log.Println("[app] bye-logic finished safely")
+	}()
 }
 
 func (a *App) setupRoutes() *http.ServeMux {
