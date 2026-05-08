@@ -44,10 +44,9 @@ func (n *Node) ProcessPacket(incp *models.P2PPacket, rmaddr string) (*models.P2P
 		return nil, fmt.Errorf("invalid sig -> denied")
 	}
 
+	log.Printf("recv packet w %d", incp.Action)
 	if incp.Action == models.ActHelloSyn {
-		p, err := n.recvDialp(incp, rmaddr)
-		go n.synchello()
-		return p, err
+		return n.recvDialp(incp, rmaddr)
 	}
 
 	switch incp.Action {
@@ -72,7 +71,7 @@ func (n *Node) ProcessPacket(incp *models.P2PPacket, rmaddr string) (*models.P2P
 		return nil, n.recvDl(incp)
 
 	default:
-		return nil, fmt.Errorf("unknown act -> denied")
+		return nil, fmt.Errorf("unknown act -> packet denied")
 	}
 }
 
@@ -105,7 +104,6 @@ func ConnNode(prkpath string, port int, name string) (*Node, error) {
 		}
 	}
 
-	// log.Printf("[init] node connected")
 	return &Node{
 		PublicK:  pub,
 		PrivateK: priv,

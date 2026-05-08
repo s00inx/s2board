@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"os/signal"
 	"syscall"
 
@@ -31,9 +30,7 @@ func main() {
 	go app.Run(ctx)
 
 	<-ctx.Done()
-	log.Println("Shutting down... waiting for goroutines")
 
 	// waiting for all exit proccesses done
 	app.Wait()
-	log.Println("Exit.")
 }

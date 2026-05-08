@@ -45,13 +45,14 @@ func (n *Node) Discover(ctx context.Context) {
 
 				log.Printf("[net] found on %s:%d", targetip, entry.Port)
 
-				// most naive determinated decision of double-handshake problem -> compare addr strings
+				// most naive determinated decision of double-handshake problem is comparing addr strings
+				// beacause nodes don't know anything before handshake
 				urldst, urlnode := fmt.Sprintf("%s:%d", targetip, entry.Port), fmt.Sprintf("%s:%d", n.IP, n.Port)
-				if urldst > urlnode {
-					log.Printf("node is handshake senior -> init handshake...")
+				if urldst < urlnode {
+					log.Printf("[hs] initializing handshake...")
 					go n.Dialp(targetip, entry.Port, models.ActHelloSyn)
 				} else {
-					log.Printf("node is not senior -> waiting for hello packet...")
+					log.Printf("[hs] node is not senior -> waiting for hello packet...")
 				}
 
 			}

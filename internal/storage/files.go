@@ -11,6 +11,10 @@ import (
 
 // file hash -> dir with file
 func (s *ExternalStorage) Fhash2dir(fhash string) string {
+	if len(fhash) < 2 {
+		return ""
+	}
+
 	shard := fhash[:2]
 	return filepath.Join(s.Dir, s.BlobsDir, shard)
 }
@@ -103,6 +107,9 @@ func (s *ExternalStorage) DeleteFile(fhash string) error {
 
 // check if file exist in local storage
 func (s *ExternalStorage) FileExists(fhash string) bool {
+	if len(fhash) < 2 {
+		return true
+	}
 	_, err := os.Stat(s.Fhash2path(fhash))
 	return err == nil
 }

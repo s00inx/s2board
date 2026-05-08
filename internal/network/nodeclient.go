@@ -1,6 +1,5 @@
 // all p2p node as CLIENT logic
 // send packet -> recv response / return error/nil
-
 package network
 
 import (
@@ -41,13 +40,16 @@ func (n *Node) Dlf(fhash string) error {
 	}
 
 	log.Printf("[download] req file %s from %s", fhash[:8], p.Name)
-
 	newreq := filereqpl{
 		Fh:     fhash,
 		Offset: 0,
 	}
 
-	reqpl, _ := n.Codec.Encode(newreq)
+	reqpl, err := n.Codec.Encode(newreq)
+	if err != nil {
+		return err
+	}
+
 	reqp := models.NewPacket(reqpl, models.ActReqF, n.UID, n.PrivateK)
 
 	respp, err := n.Transport.Sendp(p.IP, p.Port, reqp)
@@ -113,45 +115,48 @@ func (n *Node) Createf(src, title, desc string) error {
 	return nil
 }
 
-// node <-> node first data exchange (pub key, name and local hashes list)
+// dial with peer and initialize handshake
 func (n *Node) Dialp(ip string, port int, action models.Actcode) error {
 	// building self hello packet
-	hsbytes, _ := n.getsynclist()
+	hlist, _ := n.getsynclist()
 	pl := syncpl{
 		Name:   n.PubName,
 		UID:    n.UID,
-		Hashes: hsbytes,
+		Hashes: hlist,
+		Port:   n.Port,
 	}
-	pl.Port = n.Port
 
-	pl2send, _ := n.Codec.Encode(pl)
+	pl2send, err := n.Codec.Encode(pl)
+	if err != nil {
+		return err
+	}
+
 	hellop := models.NewPacket(pl2send, action, n.UID, n.PrivateK)
-
-	hellopacket, err := n.Transport.Sendp(ip, port, hellop)
+	helloresp, err := n.Transport.Sendp(ip, port, hellop)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
 
-	if !hellopacket.Verify() {
+	if !helloresp.Verify() {
 		log.Printf("[sec] invalid sig from %s:%d -> drop handshake", ip, port)
 		return err
 	}
 
 	// waiting for helloack, so drop other packets
-	if hellopacket.Action != models.ActRespHello {
+	if helloresp.Action != models.ActRespHello {
 		log.Println("[sync] invalid packet: want RespHello")
 		return err
 	}
 
 	var hellopl syncpl
-	err = n.Codec.Decode(hellopacket.Payload, &hellopl)
+	err = n.Codec.Decode(helloresp.Payload, &hellopl)
 	if err != nil {
 		log.Println(err)
 	}
 
 	nei := Peer{
-		UID:      hellopacket.Senderuid,
+		UID:      helloresp.Senderuid,
 		Name:     hellopl.Name,
 		IP:       ip,
 		Port:     port,
